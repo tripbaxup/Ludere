@@ -71,17 +71,36 @@ task prepareCore {
 
             jniAbiFolder.mkdirs()
 
-            download {
-                src "https://buildbot.libretro.com/nightly/android/latest/$abi/${configValue('config_core')}_libretro_android.so.zip"
-                dest "${rootProject.projectDir}/app/src/main/jniLibs/$abi"
-            }
-            copy {
-                from zipTree("${rootProject.projectDir}/app/src/main/jniLibs/$abi/${configValue('config_core')}_libretro_android.so.zip")
-                into "${rootProject.projectDir}/app/src/main/jniLibs/$abi"
-                rename "${configValue('config_core')}_libretro_android.so", "libcore.so"
-            }
-            delete {
-                delete "${rootProject.projectDir}/app/src/main/jniLibs/$abi/${configValue('config_core')}_libretro_android.so.zip"
+            def downloadUrl = "https://buildbot.libretro.com/nightly/android/latest/$abi/${configValue('config_core')}_libretro_android.so.zip"
+            def zipPath = "${rootProject.projectDir}/app/src/main/jniLibs/$abi/${configValue('config_core')}_libretro_android.so.zip"
+            
+            try {
+                download {
+                    src downloadUrl
+                    dest "${rootProject.projectDir}/app/src/main/jniLibs/$abi"
+                    overwrite true
+                    quiet false
+                    onError { Exception e ->
+                        println("⚠️ Warning: Could not download core for $abi: ${e.message}")
+                        println("   Skipping $abi architecture...")
+                    }
+                }
+                
+                if (file(zipPath).exists()) {
+                    copy {
+                        from zipTree(zipPath)
+                        into "${rootProject.projectDir}/app/src/main/jniLibs/$abi"
+                        rename "${configValue('config_core')}_libretro_android.so", "libcore.so"
+                    }
+                    delete {
+                        delete zipPath
+                    }
+                } else {
+                    println("⚠️ Warning: Core not downloaded for $abi, skipping...")
+                }
+            } catch (Exception e) {
+                println("⚠️ Warning: Failed to process core for $abi: ${e.message}")
+                println("   Skipping $abi architecture...")
             }
         }
     }
