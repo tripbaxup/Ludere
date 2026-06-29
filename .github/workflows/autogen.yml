@@ -20,12 +20,20 @@ jobs:
       - name: Fetch payload
         run: |
           mkdir -p ./autogen/input/
-          curl -fL# "${{ inputs.payload }}" -o ./autogen/input/payload.zip
+          curl -fL# "${{ inputs.payload }}" -o ./autogen/input/payload.zip || true
+          echo "Payload download attempt completed"
+          ls -la ./autogen/input/ || echo "Input directory listing failed"
 
       - name: Unzip payload
         run: |
-          unzip -o ./autogen/input/payload.zip -d ./autogen/input/
-          rm ./autogen/input/payload.zip
+          if [ -f ./autogen/input/payload.zip ]; then
+            unzip -o ./autogen/input/payload.zip -d ./autogen/input/
+            rm ./autogen/input/payload.zip
+            echo "Unzip completed successfully"
+          else
+            echo "ERROR: payload.zip not found!"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: |
@@ -33,10 +41,16 @@ jobs:
           sudo apt-get install -y xmlstarlet
 
       - name: Run autogen
-        run: ./autogen/generate
+        run: |
+          echo "Starting autogen..."
+          ./autogen/generate
+          echo "Autogen completed"
 
       - name: Compress outputs
-        run: zip -vr9 ./autogen/output/output.zip ./autogen/output/*
+        run: |
+          echo "Compressing outputs..."
+          zip -vr9 ./autogen/output/output.zip ./autogen/output/*
+          echo "Compression completed"
 
       - name: Get date
         id: date
