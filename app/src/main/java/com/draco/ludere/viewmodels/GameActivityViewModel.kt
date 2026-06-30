@@ -41,12 +41,12 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
         controllerInput.menuCallback = { showMenu() }
     }
 
-    fun prepareMenu(context: Context) {
+    fun prepareMenu(activity: Activity) {
         if (menuDialog != null)
             return
 
         val menuOnClickListener = MenuOnClickListener()
-        menuDialog = AlertDialog.Builder(context)
+        menuDialog = AlertDialog.Builder(activity)
             .setItems(menuOnClickListener.menuOptions, menuOnClickListener)
             .create()
     }
@@ -54,9 +54,11 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
     fun showMenu() {
         if (retroView?.frameRendered?.value == true) {
             retroView?.let { retroViewUtils?.preserveEmulatorState(it) }
-            val context = getApplication<Application>().applicationContext
-            prepareMenu(context)
-            menuDialog?.show()
+            val activity = retroView?.view?.context as? Activity
+            if (activity != null) {
+                prepareMenu(activity)
+                menuDialog?.show()
+            }
         }
     }
 
@@ -151,6 +153,7 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
     fun detachRetroView(activity: ComponentActivity) {
         retroView?.let { activity.lifecycle.removeObserver(it.view) }
         retroView = null
+        touchOverlay?.let { (it.parent as? ViewGroup)?.removeView(it) }
         touchOverlay = null
     }
 
