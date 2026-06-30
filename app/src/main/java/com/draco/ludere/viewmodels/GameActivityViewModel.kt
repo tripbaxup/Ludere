@@ -15,6 +15,7 @@ import com.draco.ludere.R
 import com.draco.ludere.gamepad.GamePad
 import com.draco.ludere.gamepad.GamePadConfig
 import com.draco.ludere.input.ControllerInput
+import com.draco.ludere.input.TouchOverlayView
 import com.draco.ludere.retroview.RetroView
 import com.draco.ludere.utils.RetroViewUtils
 import io.reactivex.disposables.CompositeDisposable
@@ -32,6 +33,9 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
 
     private var compositeDisposable = CompositeDisposable()
     private val controllerInput = ControllerInput()
+
+    // touch overlay
+    private var touchOverlay: TouchOverlayView? = null
 
     init {
         controllerInput.menuCallback = { showMenu() }
@@ -96,6 +100,15 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
             activity.lifecycle.addObserver(retroView.view)
             retroView.registerFrameRenderedListener()
 
+            // Add single full-screen touch overlay above the retro view
+            val overlay = TouchOverlayView(activity, controllerInput.n64InputHandler, retroView.view)
+            val overlayParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            container.addView(overlay, overlayParams)
+            touchOverlay = overlay
+
             retroView.frameRendered.observe(activity) {
                 if (it != true)
                     return@observe
@@ -105,26 +118,13 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    // No-op for gamepads: touch overlay replaces radial gamepads for touch-only builds
     fun setupGamePads(leftContainer: FrameLayout, rightContainer: FrameLayout) {
-        val context = getApplication<Application>().applicationContext
-
-        val gamePadConfig = GamePadConfig(context, resources)
-        // Pass the shared N64InputHandler to GamePads so they respect the toggle
-        leftGamePad = GamePad(context, gamePadConfig.left, controllerInput.n64InputHandler)
-        rightGamePad = GamePad(context, gamePadConfig.right, controllerInput.n64InputHandler)
-
-        leftGamePad?.let {
-            leftContainer.addView(it.pad)
-            retroView?.let { retroView -> it.subscribe(compositeDisposable, retroView.view) }
-        }
-
-        rightGamePad?.let {
-            rightContainer.addView(it.pad)
-            retroView?.let { retroView -> it.subscribe(compositeDisposable, retroView.view) }
-        }
+        // intentionally left blank - touch overlay provides all virtual controls
     }
 
     fun updateGamePadVisibility(activity: Activity, leftContainer: FrameLayout, rightContainer: FrameLayout) {
+        // keep original visibility logic in case UI expects containers, but they remain empty
         val visibility = if (GamePad.shouldShowGamePads(activity))
             View.VISIBLE
         else
@@ -151,6 +151,7 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
     fun detachRetroView(activity: ComponentActivity) {
         retroView?.let { activity.lifecycle.removeObserver(it.view) }
         retroView = null
+        touchOverlay = null
     }
 
     fun setConfigOrientation(activity: Activity) {
@@ -181,13 +182,13 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
                     context.getString(R.string.menu_mute),
                     context.getString(R.string.menu_fast_forward)
                 )
-                
+
                 val toggleLabel = if (controllerInput.n64InputHandler.useAnalogStick) {
                     context.getString(R.string.menu_toggle_analog)
                 } else {
                     context.getString(R.string.menu_toggle_dpad)
                 }
-                
+
                 return baseOptions + toggleLabel
             }
 
@@ -200,7 +201,7 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
                 context.getString(R.string.menu_mute),
                 context.getString(R.string.menu_fast_forward)
             )
-            
+
             when {
                 which < baseOptions.size -> {
                     when (baseOptions[which]) {
@@ -222,6 +223,9 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
                 which == baseOptions.size -> {
                     controllerInput.n64InputHandler.useAnalogStick = !controllerInput.n64InputHandler.useAnalogStick
                     controllerInput.n64InputHandler.reset()
+                    // persist pref for next sessions
+                    val prefs = context.getSharedPreferences("touch_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean("touch_use_analog", controllerInput.n64InputHandler.useAnalogStick).apply()
                 }
             }
         }
