@@ -50,21 +50,23 @@ class N64InputHandler {
             return
         }
         
+        // Send D-Pad (always)
         if (hatX != dpadX || hatY != dpadY) {
             dpadX = hatX
             dpadY = hatY
             retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, hatX, hatY, port)
         }
         
+        // Send left analog stick with aggressive deadzone
         val analogX = applyDeadzone(rawX)
         val analogY = applyDeadzone(rawY)
         
-        if (analogX != analogLeftX || analogY != analogLeftY) {
-            analogLeftX = analogX
-            analogLeftY = analogY
-            retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, analogX, analogY, port)
-        }
+        // Force send analog every frame to ensure N64 receives continuous stick data
+        analogLeftX = analogX
+        analogLeftY = analogY
+        retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, analogX, analogY, port)
         
+        // Send right analog stick
         val rightAnalogX = applyDeadzone(rightX)
         val rightAnalogY = applyDeadzone(rightY)
         
