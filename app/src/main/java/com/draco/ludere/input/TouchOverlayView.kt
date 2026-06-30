@@ -36,8 +36,9 @@ class TouchOverlayView(
 
     private val rightCenterXPct = 0.80f
     private val rightCenterYPct = 0.75f
-    private val buttonRadiusPct = 0.08f
-    private val buttonSpacingPct = 0.06f
+    // increased by 50% per request
+    private val buttonRadiusPct = 0.12f
+    private val buttonSpacingPct = 0.09f
 
     private var leftPointerId: Int = -1
     private var buttonPointers = mutableMapOf<Int, Int>() // pointerId -> keycode
@@ -67,7 +68,7 @@ class TouchOverlayView(
         val btnR = min(w, h) * buttonRadiusPct
         val spacing = min(w, h) * buttonSpacingPct
 
-        paint.color = Color.argb(120, 200, 0, 0)
+        paint.color = Color.argb(160, 200, 0, 0)
         // A (bottom-right)
         canvas.drawCircle(rightCx + spacing, rightCy + spacing, btnR, paint)
         // B (bottom-left)
@@ -205,6 +206,26 @@ class TouchOverlayView(
                 else -> 0f
             }
             n64Handler.sendVirtualDpad(qx, qy, retroView, port)
+        }
+    }
+
+    /**
+     * Reset internal touch tracking and release any active virtual controls.
+     * Used when switching input modes (analog <-> dpad) so the change takes effect immediately.
+     */
+    fun resetState() {
+        // Release any pressed button pointers
+        for ((_, key) in buttonPointers) {
+            retroView.sendKeyEvent(KeyEvent.ACTION_UP, key, port)
+        }
+        buttonPointers.clear()
+
+        // Clear left pointer tracking and send zeroed axes
+        leftPointerId = -1
+        if (n64Handler.useAnalogStick) {
+            n64Handler.sendVirtualAnalogLeft(0f, 0f, retroView, port)
+        } else {
+            n64Handler.sendVirtualDpad(0f, 0f, retroView, port)
         }
     }
 }
