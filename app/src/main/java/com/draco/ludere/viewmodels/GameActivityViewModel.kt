@@ -109,8 +109,9 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
         val context = getApplication<Application>().applicationContext
 
         val gamePadConfig = GamePadConfig(context, resources)
-        leftGamePad = GamePad(context, gamePadConfig.left)
-        rightGamePad = GamePad(context, gamePadConfig.right)
+        // Pass the shared N64InputHandler to GamePads so they respect the toggle
+        leftGamePad = GamePad(context, gamePadConfig.left, controllerInput.n64InputHandler)
+        rightGamePad = GamePad(context, gamePadConfig.right, controllerInput.n64InputHandler)
 
         leftGamePad?.let {
             leftContainer.addView(it.pad)

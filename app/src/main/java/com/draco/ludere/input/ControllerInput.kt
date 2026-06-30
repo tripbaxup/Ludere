@@ -8,17 +8,11 @@ import com.swordfish.libretrodroid.GLRetroView
 
 class ControllerInput {
     companion object {
-        /**
-         * Combination to open the menu
-         */
         val KEYCOMBO_MENU = setOf(
             KeyEvent.KEYCODE_BUTTON_START,
             KeyEvent.KEYCODE_BUTTON_SELECT
         )
 
-        /**
-         * Any of these keys will not be piped to the RetroView
-         */
         val EXCLUDED_KEYS = setOf(
             KeyEvent.KEYCODE_VOLUME_DOWN,
             KeyEvent.KEYCODE_VOLUME_UP,
@@ -26,68 +20,46 @@ class ControllerInput {
             KeyEvent.KEYCODE_POWER
         )
     }
-    /**
-     * Set of keys currently being held by the user
-     */
+    
     private val keyLog = mutableSetOf<Int>()
-
-    /**
-     * The callback for when the user inputs the menu key-combination
-     */
     var menuCallback: () -> Unit = {}
-
-    /**
-     * N64-specific input handler for analog stick and D-Pad routing
-     */
+    
+    // Shared N64 input handler - used by both physical and touch controls
     val n64InputHandler = N64InputHandler()
 
-    /**
-     *  Controller numbers are [1, inf), we need [0, inf)
-     */
     private fun getPort(event: InputEvent): Int =
         ((event.device?.controllerNumber ?: 1) - 1).coerceAtLeast(0)
 
-    /**
-     * Check if we should be showing the user the menu
-     */
     private fun checkMenuKeyCombo() {
         if (keyLog == KEYCOMBO_MENU)
             menuCallback()
     }
 
     fun processKeyEvent(keyCode: Int, event: KeyEvent, retroView: RetroView): Boolean? {
-        /* Block these keys! */
         if (EXCLUDED_KEYS.contains(keyCode))
             return null
 
-        /* We're not ready yet! */
         if (retroView.frameRendered.value == false)
             return true
 
         val port = getPort(event)
         retroView.view.sendKeyEvent(event.action, keyCode, port)
 
-        /* Keep track of user input events */
         when (event.action) {
             KeyEvent.ACTION_DOWN -> keyLog.add(keyCode)
             KeyEvent.ACTION_UP -> keyLog.remove(keyCode)
         }
 
         checkMenuKeyCombo()
-
         return true
     }
 
     fun processMotionEvent(event: MotionEvent, retroView: RetroView): Boolean? {
-        /* We're not ready yet! */
         if (retroView.frameRendered.value == false)
             return null
 
         val port = getPort(event)
-        
-        /* Use N64-optimized input handler to properly separate D-Pad and analog stick */
         n64InputHandler.processN64MotionEvent(event, retroView.view, port)
-
         return true
     }
 }
