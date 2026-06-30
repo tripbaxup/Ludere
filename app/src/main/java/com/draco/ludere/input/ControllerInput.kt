@@ -39,7 +39,7 @@ class ControllerInput {
     /**
      * N64-specific input handler for analog stick and D-Pad routing
      */
-    private val n64InputHandler = N64InputHandler()
+    val n64InputHandler = N64InputHandler()
 
     /**
      *  Controller numbers are [1, inf), we need [0, inf)
