@@ -37,6 +37,11 @@ class ControllerInput {
     var menuCallback: () -> Unit = {}
 
     /**
+     * N64-specific input handler for analog stick and D-Pad routing
+     */
+    private val n64InputHandler = N64InputHandler()
+
+    /**
      *  Controller numbers are [1, inf), we need [0, inf)
      */
     private fun getPort(event: InputEvent): Int =
@@ -79,26 +84,9 @@ class ControllerInput {
             return null
 
         val port = getPort(event)
-        retroView.view.apply {
-            sendMotionEvent(
-                GLRetroView.MOTION_SOURCE_DPAD,
-                event.getAxisValue(MotionEvent.AXIS_HAT_X),
-                event.getAxisValue(MotionEvent.AXIS_HAT_Y),
-                port
-            )
-            sendMotionEvent(
-                GLRetroView.MOTION_SOURCE_ANALOG_LEFT,
-                event.getAxisValue(MotionEvent.AXIS_X),
-                event.getAxisValue(MotionEvent.AXIS_Y),
-                port
-            )
-            sendMotionEvent(
-                GLRetroView.MOTION_SOURCE_ANALOG_RIGHT,
-                event.getAxisValue(MotionEvent.AXIS_Z),
-                event.getAxisValue(MotionEvent.AXIS_RZ),
-                port
-            )
-        }
+        
+        /* Use N64-optimized input handler to properly separate D-Pad and analog stick */
+        n64InputHandler.processN64MotionEvent(event, retroView.view, port)
 
         return true
     }
