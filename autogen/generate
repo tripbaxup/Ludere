@@ -5,6 +5,9 @@ SCRIPT_PATH="$(readlink -f "$0")"
 SCRIPT_ROOT="$(dirname "$SCRIPT_PATH")"
 PROJECT_ROOT="$SCRIPT_ROOT/.."
 
+# Clear Gradle wrapper cache FIRST, before any gradle commands
+rm -rf ~/.gradle/wrapper/dists/gradle-*
+
 # Important project paths
 RES_DIR="$PROJECT_ROOT/app/src/main/res"
 RAW_DIR="$RES_DIR/raw"
