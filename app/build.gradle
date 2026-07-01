@@ -3,19 +3,13 @@ plugins {
     id('kotlin-android')
 }
 
-def configValue = { id ->
-    return new XmlParser()
-        .parse(file("${rootProject.projectDir.path}/app/src/main/res/values/config.xml"))
-        .string.find { it.@name.equals id }.text()
-}
-
 android {
     compileSdkVersion 34
     buildToolsVersion '34.0.0'
-    namespace "com.draco.ludere.${configValue('config_id')}"
+    namespace "com.draco.ludere"
 
     defaultConfig {
-        applicationId "com.draco.ludere.${configValue('config_id')}"
+        applicationId "com.draco.ludere"
         minSdkVersion 21
         targetSdkVersion 35
         versionCode 1
@@ -60,6 +54,12 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+}
+
+def configValue = { id ->
+    return new XmlParser()
+        .parse(file("${rootProject.projectDir.path}/app/src/main/res/values/config.xml"))
+        .string.find { it.@name.equals id }.text()
 }
 
 task prepareCore {
@@ -111,13 +111,6 @@ task prepareCore {
     }
 }
 preBuild.dependsOn prepareCore
-
-// Force data binding and resource generation before Kotlin compilation
-tasks.whenTaskAdded { task ->
-    if (task.name == 'compileReleaseKotlin' || task.name == 'compileDebugKotlin') {
-        task.dependsOn 'dataBindingGenBaseClassesRelease', 'dataBindingGenBaseClassesDebug'
-    }
-}
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
