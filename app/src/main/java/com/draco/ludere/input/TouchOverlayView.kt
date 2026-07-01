@@ -191,13 +191,12 @@ class TouchOverlayView(
         val maxR = min(w, h) * stickRadiusPct * 1.6f
 
         var dx = (x - cx) / maxR
-        var dy = (y - cy) / maxR
-        // invert Y to match typical controller axes (up negative -> send negative)
-        dy = -dy
+var dy = (y - cy) / maxR
 
-        // clamp
-        dx = dx.coerceIn(-1f, 1f)
-        dy = dy.coerceIn(-1f, 1f)
+// Leave Y axis in its natural direction.
+// Up on the touch stick moves up in-game, down moves down.
+dx = dx.coerceIn(-1f, 1f)
+dy = dy.coerceIn(-1f, 1f)
 
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(dx, dy, retroView, port)
