@@ -31,26 +31,29 @@ class GamePad(
             if (!activity.resources.getBoolean(R.bool.config_gamepad))
                 return false
 
-            val hasTouchScreen = activity.packageManager?.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
-            if (hasTouchScreen == null || hasTouchScreen == false)
+            val hasTouchScreen =
+                activity.packageManager?.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+            if (hasTouchScreen != true)
                 return false
 
-            val currentDisplayId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                activity.display!!.displayId
-            else {
-                val wm = activity.getSystemService(AppCompatActivity.WINDOW_SERVICE) as WindowManager
-                wm.defaultDisplay.displayId
-            }
+            val currentDisplayId =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    activity.display?.displayId ?: return false
+                } else {
+                    val wm =
+                        activity.getSystemService(AppCompatActivity.WINDOW_SERVICE) as WindowManager
+                    wm.defaultDisplay.displayId
+                }
 
             val dm = activity.getSystemService(Service.DISPLAY_SERVICE) as DisplayManager
-            if (dm.getDisplay(currentDisplayId).flags and Display.FLAG_PRESENTATION == Display.FLAG_PRESENTATION)
+            if ((dm.getDisplay(currentDisplayId).flags and Display.FLAG_PRESENTATION) == Display.FLAG_PRESENTATION)
                 return false
 
             for (id in InputDevice.getDeviceIds()) {
-                InputDevice.getDevice(id).apply {
-                    if (sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD)
-                        return false
-                }
+                val device = InputDevice.getDevice(id) ?: continue
+
+                if ((device.sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD)
+                    return false
             }
 
             return true
@@ -59,25 +62,50 @@ class GamePad(
 
     private fun eventHandler(event: Event, retroView: GLRetroView) {
         when (event) {
-            is Event.Button -> retroView.sendKeyEvent(event.action, event.id)
+            is Event.Button -> {
+                retroView.sendKeyEvent(event.action, event.id)
+            }
+
             is Event.Direction -> {
                 when (event.id) {
                     GLRetroView.MOTION_SOURCE_DPAD -> {
                         if (sharedN64Handler != null && !sharedN64Handler.useAnalogStick) {
-                            retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, event.xAxis, event.yAxis)
+                            retroView.sendMotionEvent(
+                                GLRetroView.MOTION_SOURCE_DPAD,
+                                event.xAxis,
+                                event.yAxis
+                            )
                         } else if (sharedN64Handler == null) {
-                            retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, event.xAxis, event.yAxis)
+                            retroView.sendMotionEvent(
+                                GLRetroView.MOTION_SOURCE_DPAD,
+                                event.xAxis,
+                                event.yAxis
+                            )
                         }
                     }
+
                     GLRetroView.MOTION_SOURCE_ANALOG_LEFT -> {
                         if (sharedN64Handler != null && sharedN64Handler.useAnalogStick) {
-                            retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, event.xAxis, event.yAxis)
+                            retroView.sendMotionEvent(
+                                GLRetroView.MOTION_SOURCE_ANALOG_LEFT,
+                                event.xAxis,
+                                event.yAxis
+                            )
                         } else if (sharedN64Handler == null) {
-                            retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, event.xAxis, event.yAxis)
+                            retroView.sendMotionEvent(
+                                GLRetroView.MOTION_SOURCE_ANALOG_LEFT,
+                                event.xAxis,
+                                event.yAxis
+                            )
                         }
                     }
+
                     GLRetroView.MOTION_SOURCE_ANALOG_RIGHT -> {
-                        retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, event.xAxis, event.yAxis)
+                        retroView.sendMotionEvent(
+                            GLRetroView.MOTION_SOURCE_ANALOG_RIGHT,
+                            event.xAxis,
+                            event.yAxis
+                        )
                     }
                 }
             }
