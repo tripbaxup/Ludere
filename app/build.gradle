@@ -112,6 +112,13 @@ task prepareCore {
 }
 preBuild.dependsOn prepareCore
 
+// Force data binding and resource generation before Kotlin compilation
+tasks.whenTaskAdded { task ->
+    if (task.name == 'compileReleaseKotlin' || task.name == 'compileDebugKotlin') {
+        task.dependsOn 'dataBindingGenBaseClassesRelease', 'dataBindingGenBaseClassesDebug'
+    }
+}
+
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
