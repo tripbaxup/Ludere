@@ -33,6 +33,7 @@ class GamePad(
 
             val hasTouchScreen =
                 activity.packageManager?.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+
             if (hasTouchScreen != true)
                 return false
 
@@ -46,13 +47,18 @@ class GamePad(
                 }
 
             val dm = activity.getSystemService(Service.DISPLAY_SERVICE) as DisplayManager
-            if ((dm.getDisplay(currentDisplayId).flags and Display.FLAG_PRESENTATION) == Display.FLAG_PRESENTATION)
+
+            if ((dm.getDisplay(currentDisplayId).flags and Display.FLAG_PRESENTATION)
+                == Display.FLAG_PRESENTATION
+            )
                 return false
 
             for (id in InputDevice.getDeviceIds()) {
                 val device = InputDevice.getDevice(id) ?: continue
 
-                if ((device.sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD)
+                if ((device.sources and InputDevice.SOURCE_GAMEPAD)
+                    == InputDevice.SOURCE_GAMEPAD
+                )
                     return false
             }
 
@@ -62,13 +68,17 @@ class GamePad(
 
     private fun eventHandler(event: Event, retroView: GLRetroView) {
         when (event) {
+
             is Event.Button -> {
                 retroView.sendKeyEvent(event.action, event.id)
             }
 
             is Event.Direction -> {
+
                 when (event.id) {
+
                     GLRetroView.MOTION_SOURCE_DPAD -> {
+
                         if (sharedN64Handler != null && !sharedN64Handler.useAnalogStick) {
                             retroView.sendMotionEvent(
                                 GLRetroView.MOTION_SOURCE_DPAD,
@@ -84,23 +94,30 @@ class GamePad(
                         }
                     }
 
+
                     GLRetroView.MOTION_SOURCE_ANALOG_LEFT -> {
+
                         if (sharedN64Handler != null && sharedN64Handler.useAnalogStick) {
+
                             retroView.sendMotionEvent(
                                 GLRetroView.MOTION_SOURCE_ANALOG_LEFT,
                                 event.xAxis,
-                                event.yAxis
+                                -event.yAxis   // INVERTED UP/DOWN
                             )
+
                         } else if (sharedN64Handler == null) {
+
                             retroView.sendMotionEvent(
                                 GLRetroView.MOTION_SOURCE_ANALOG_LEFT,
                                 event.xAxis,
-                                event.yAxis
+                                -event.yAxis   // INVERTED UP/DOWN
                             )
                         }
                     }
 
+
                     GLRetroView.MOTION_SOURCE_ANALOG_RIGHT -> {
+
                         retroView.sendMotionEvent(
                             GLRetroView.MOTION_SOURCE_ANALOG_RIGHT,
                             event.xAxis,
@@ -112,10 +129,16 @@ class GamePad(
         }
     }
 
-    fun subscribe(compositeDisposable: CompositeDisposable, retroView: GLRetroView) {
+
+    fun subscribe(
+        compositeDisposable: CompositeDisposable,
+        retroView: GLRetroView
+    ) {
+
         val inputDisposable = pad.events().subscribe {
             eventHandler(it, retroView)
         }
+
         compositeDisposable.add(inputDisposable)
     }
 }
