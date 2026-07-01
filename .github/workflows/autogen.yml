@@ -29,6 +29,12 @@ jobs:
           rm -rf ~/.android || true
           echo "SDK cache cleared"
 
+      - name: Clear Gradle cache
+        run: |
+          rm -rf ~/.gradle/caches || true
+          rm -rf .gradle || true
+          echo "Gradle cache cleared"
+
       - name: Fetch payload
         run: |
           mkdir -p ./autogen/input/
