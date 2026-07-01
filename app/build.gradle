@@ -12,6 +12,7 @@ def configValue = { id ->
 android {
     compileSdkVersion 35
     buildToolsVersion '35.0.0'
+    namespace "com.draco.ludere.${configValue('config_id')}"
 
     defaultConfig {
         applicationId "com.draco.ludere.${configValue('config_id')}"
