@@ -64,6 +64,12 @@ class RetroView(private val context: Context, private val compositeDisposable: C
         )
         params.gravity = Gravity.CENTER
         view.layoutParams = params
+
+        // Explicitly pin to normal (1x) speed from the very first frame.
+        // Previously this was only set once the first frame had already
+        // rendered (in RetroViewUtils.restoreEmulatorState), leaving a brief
+        // window where speed was whatever the core/library defaulted to.
+        view.frameSpeed = 1
     }
 
     /**
