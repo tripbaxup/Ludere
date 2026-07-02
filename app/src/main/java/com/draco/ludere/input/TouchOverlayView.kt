@@ -21,9 +21,11 @@ import kotlin.math.*
  *
  * - Bottom-left: analog stick (or dpad if n64Handler.useAnalogStick == false)
  * - Bottom-right: A/B/X/Y face buttons
- * - Just left of the face buttons: C-Up/Down/Left/Right (mapped to the
- *   right analog stick, which is how N64 cores read the C buttons)
- * - Top-left: Z shoulder button (mapped to L2, the standard N64 Z mapping)
+ * - Directly above the face buttons: C-Up/Down/Left/Right (mapped to the
+ *   right analog stick, which is how N64 cores read the C buttons). In
+ *   portrait, where the emulator letterboxes the game vertically, this
+ *   cluster is shrunk/clamped so it never draws on top of the game image.
+ * - Top-right: Z shoulder button (mapped to L2, the standard N64 Z mapping)
  * - Top-center: Start
  */
 class TouchOverlayView(
@@ -60,12 +62,13 @@ class TouchOverlayView(
     private val buttonRadiusPct = 0.085f
     private val buttonSpacingPct = 0.115f
 
-    // C-button cluster
-    private val cOffsetFromMainPct = 0.40f // horizontal distance to the left of the main cluster
+    // C-button cluster (ideal / landscape sizing -- see cGeometry())
     private val cRadiusPct = 0.058f
     private val cSpacingPct = 0.10f
+    private val cAboveGapPct = 0.03f       // gap between the C-cluster and whatever is below/above it
+    private val cMinScalePortrait = 0.55f  // never shrink the C-cluster below 55% of its ideal size
 
-    // Z (top-left shoulder button)
+    // Z (now top-right shoulder button)
     private val zInsetPct = 0.15f
     private val zRadiusPct = 0.09f
 
@@ -74,6 +77,8 @@ class TouchOverlayView(
     private val startRadiusPct = 0.075f
 
     private var leftPointerId: Int = -1
+    private var stickVisualDx = 0f // current knob offset, normalized -1..1, for drawing only
+    private var stickVisualDy = 0f
     private var buttonPointers = mutableMapOf<Int, Int>() // pointerId -> keycode
 
     // C-button direction flags
@@ -95,6 +100,8 @@ class TouchOverlayView(
 
     private fun unit() = min(width, height).toFloat()
 
+    private fun isPortrait() = height > width
+
     private fun leftCenter(): Pair<Float, Float> {
         val u = unit()
         return Pair(u * leftInsetPct, height - u * leftBottomInsetPct)
@@ -105,15 +112,49 @@ class TouchOverlayView(
         return Pair(width - u * rightInsetPct, height - u * rightBottomInsetPct)
     }
 
-    private fun cCenter(): Pair<Float, Float> {
-        val (rcx, rcy) = rightCenter()
+    private data class CGeometry(val cx: Float, val cy: Float, val radius: Float, val spacing: Float)
+
+    /**
+     * Computes the center, radius, and spacing of the C-button diamond. The
+     * cluster always sits directly above the main A/B/X/Y cluster, centered
+     * on the same X. In portrait, the emulator letterboxes a standard N64
+     * 4:3 image to the view's full width; if the gap between the game's
+     * bottom edge and the main buttons isn't tall enough for the cluster at
+     * its normal size, it's shrunk (down to cMinScalePortrait) to fit --
+     * obscuring the game view is worse than a smaller cluster. If you use a
+     * core/output with a different aspect ratio, adjust the 4f/3f below.
+     */
+    private fun cGeometry(): CGeometry {
         val u = unit()
-        return Pair(rcx - u * cOffsetFromMainPct, rcy)
+        val (rightCx, rightCy) = rightCenter()
+        val btnR = u * buttonRadiusPct
+        val sp = u * buttonSpacingPct
+        val mainClusterTopY = rightCy - sp - btnR
+        val gap = u * cAboveGapPct
+
+        var cR = u * cRadiusPct
+        var cSp = u * cSpacingPct
+
+        if (isPortrait()) {
+            val gameHeight = width * (3f / 4f)
+            val gameBottomY = (height - gameHeight) / 2f + gameHeight
+
+            val available = mainClusterTopY - gameBottomY - 2f * gap
+            val ideal = 2f * (cSp + cR)
+            if (available < ideal) {
+                val scale = (available / ideal).coerceIn(cMinScalePortrait, 1f)
+                cR *= scale
+                cSp *= scale
+            }
+        }
+
+        val cy = mainClusterTopY - gap - (cSp + cR)
+        return CGeometry(rightCx, cy, cR, cSp)
     }
 
     private fun zCenter(): Pair<Float, Float> {
         val u = unit()
-        return Pair(u * zInsetPct, u * zInsetPct)
+        return Pair(width - u * zInsetPct, u * zInsetPct)
     }
 
     private fun startCenter(): Pair<Float, Float> {
@@ -138,11 +179,19 @@ class TouchOverlayView(
         // --- Left stick ---
         val (leftCx, leftCy) = leftCenter()
         val dragR = u * stickDragRangePct
+        val knobR = u * stickRadiusPct
         canvas.drawCircle(leftCx, leftCy, dragR, guidePaint) // faint boundary = real drag range
+
+        // The knob moves within the ring to reflect the current touch
+        // offset (clamped so it never visually leaves the ring), instead of
+        // always sitting dead-center regardless of drag direction.
+        val knobTravel = dragR - knobR
+        val knobCx = leftCx + stickVisualDx * knobTravel
+        val knobCy = leftCy + stickVisualDy * knobTravel
         fillPaint.color = Color.argb(90, 255, 255, 255)
-        canvas.drawCircle(leftCx, leftCy, u * stickRadiusPct, fillPaint)
+        canvas.drawCircle(knobCx, knobCy, knobR, fillPaint)
         strokePaint.strokeWidth = u * 0.004f
-        canvas.drawCircle(leftCx, leftCy, u * stickRadiusPct, strokePaint)
+        canvas.drawCircle(knobCx, knobCy, knobR, strokePaint)
 
         // --- Main buttons (A/B/X/Y), 40% more transparent than the original design ---
         val (rightCx, rightCy) = rightCenter()
@@ -154,17 +203,15 @@ class TouchOverlayView(
         drawLabeledCircle(canvas, rightCx + sp, rightCy - sp, btnR, red, "X")
         drawLabeledCircle(canvas, rightCx - sp, rightCy - sp, btnR, red, "Y")
 
-        // --- C-button cluster ---
-        val (cCx, cCy) = cCenter()
-        val cR = u * cRadiusPct
-        val cSp = u * cSpacingPct
+        // --- C-button cluster (directly above A/B/X/Y) ---
+        val cGeo = cGeometry()
         val amber = Color.argb(150, 210, 170, 0)
-        drawLabeledCircle(canvas, cCx, cCy - cSp, cR, amber, "\u2191")
-        drawLabeledCircle(canvas, cCx, cCy + cSp, cR, amber, "\u2193")
-        drawLabeledCircle(canvas, cCx - cSp, cCy, cR, amber, "\u2190")
-        drawLabeledCircle(canvas, cCx + cSp, cCy, cR, amber, "\u2192")
+        drawLabeledCircle(canvas, cGeo.cx, cGeo.cy - cGeo.spacing, cGeo.radius, amber, "\u2191")
+        drawLabeledCircle(canvas, cGeo.cx, cGeo.cy + cGeo.spacing, cGeo.radius, amber, "\u2193")
+        drawLabeledCircle(canvas, cGeo.cx - cGeo.spacing, cGeo.cy, cGeo.radius, amber, "\u2190")
+        drawLabeledCircle(canvas, cGeo.cx + cGeo.spacing, cGeo.cy, cGeo.radius, amber, "\u2192")
 
-        // --- Z (top-left shoulder) ---
+        // --- Z (top-right shoulder) ---
         val (zCx, zCy) = zCenter()
         drawLabeledCircle(canvas, zCx, zCy, u * zRadiusPct, Color.argb(150, 40, 40, 50), "Z")
 
@@ -202,17 +249,14 @@ class TouchOverlayView(
     }
 
     private fun cButtonDirectionAt(x: Float, y: Float): Int? {
-        val u = unit()
-        val (cCx, cCy) = cCenter()
-        val cR = u * cRadiusPct
-        val cSp = u * cSpacingPct
+        val cGeo = cGeometry()
 
-        fun hit(cx: Float, cy: Float) = hypot(x - cx, y - cy) <= cR
+        fun hit(cx: Float, cy: Float) = hypot(x - cx, y - cy) <= cGeo.radius
 
-        if (hit(cCx, cCy - cSp)) return C_UP
-        if (hit(cCx, cCy + cSp)) return C_DOWN
-        if (hit(cCx - cSp, cCy)) return C_LEFT
-        if (hit(cCx + cSp, cCy)) return C_RIGHT
+        if (hit(cGeo.cx, cGeo.cy - cGeo.spacing)) return C_UP
+        if (hit(cGeo.cx, cGeo.cy + cGeo.spacing)) return C_DOWN
+        if (hit(cGeo.cx - cGeo.spacing, cGeo.cy)) return C_LEFT
+        if (hit(cGeo.cx + cGeo.spacing, cGeo.cy)) return C_RIGHT
 
         return null
     }
@@ -293,6 +337,9 @@ class TouchOverlayView(
                 }
                 if (pid == leftPointerId) {
                     leftPointerId = -1
+                    stickVisualDx = 0f
+                    stickVisualDy = 0f
+                    invalidate()
                     if (n64Handler.useAnalogStick) {
                         n64Handler.sendVirtualAnalogLeft(0f, 0f, retroView, port)
                     } else {
@@ -316,6 +363,12 @@ class TouchOverlayView(
 
         dx = dx.coerceIn(-1f, 1f)
         dy = dy.coerceIn(-1f, 1f)
+
+        // Update the on-screen knob position so it visually tracks the
+        // thumb, then invalidate to trigger a redraw with the new offset.
+        stickVisualDx = dx
+        stickVisualDy = dy
+        invalidate()
 
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(dx, dy, retroView, port)
@@ -344,10 +397,13 @@ class TouchOverlayView(
         retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, 0f, 0f, port)
 
         leftPointerId = -1
+        stickVisualDx = 0f
+        stickVisualDy = 0f
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(0f, 0f, retroView, port)
         } else {
             n64Handler.sendVirtualDpad(0f, 0f, retroView, port)
         }
+        invalidate()
     }
 }
