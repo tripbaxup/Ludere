@@ -12,14 +12,19 @@ import kotlin.math.*
 
 /**
  * Full-screen overlay that implements touch-only virtual controls.
- * - Left area: analog stick (or dpad if n64Handler.useAnalogStick == false)
- * - Right area: action buttons A/B/X/Y, Start
- * - C-cluster: C-Up/Down/Left/Right (mapped to the right analog stick, which
- *   is how N64 cores read the C buttons)
- * - Z: shoulder trigger button (mapped to L2, the standard N64 Z mapping)
  *
- * This class is intentionally simple and self-contained so mapping/layout
- * is easy to tweak by changing the percentage constants below.
+ * Layout strategy: every element is anchored to a screen CORNER using an
+ * offset scaled by min(width, height) ("u"). This keeps controls in the
+ * actual reachable thumb zones consistently across aspect ratios, instead
+ * of using raw percentages of full height (which pushed clusters toward
+ * the middle of the screen on tall/portrait aspect ratios).
+ *
+ * - Bottom-left: analog stick (or dpad if n64Handler.useAnalogStick == false)
+ * - Bottom-right: A/B/X/Y face buttons
+ * - Just left of the face buttons: C-Up/Down/Left/Right (mapped to the
+ *   right analog stick, which is how N64 cores read the C buttons)
+ * - Top-left: Z shoulder button (mapped to L2, the standard N64 Z mapping)
+ * - Top-center: Start
  */
 class TouchOverlayView(
     context: Context,
@@ -28,35 +33,45 @@ class TouchOverlayView(
     private val port: Int = 0,
 ) : View(context) {
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.argb(90, 255, 255, 255)
+    }
+    private val guidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.argb(40, 255, 255, 255)
+    }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(220, 255, 255, 255)
+        color = Color.argb(230, 255, 255, 255)
         textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
     }
 
-    // Layout percentages (tweak to taste)
-    private val leftAreaWidthPct = 0.40f
-    private val leftAreaHeightPct = 0.55f
-    private val leftCenterXPct = 0.20f
-    private val leftCenterYPct = 0.75f
-    private val stickRadiusPct = 0.12f
+    // Left stick
+    private val leftInsetPct = 0.26f      // distance from left edge, in units of min(w,h)
+    private val leftBottomInsetPct = 0.30f // distance from bottom edge
+    private val stickRadiusPct = 0.13f
+    private val stickDragRangePct = 0.34f  // actual draggable range (matches the drawn guide ring)
 
-    private val rightCenterXPct = 0.80f
-    private val rightCenterYPct = 0.75f
-    // increased by 50% per request
-    private val buttonRadiusPct = 0.12f
-    private val buttonSpacingPct = 0.09f
+    // Main face buttons (A/B/X/Y)
+    private val rightInsetPct = 0.30f
+    private val rightBottomInsetPct = 0.30f
+    private val buttonRadiusPct = 0.085f
+    private val buttonSpacingPct = 0.115f
 
-    // C-button cluster (mapped to right analog stick, per standard N64 core mapping)
-    private val cCenterXPct = 0.58f
-    private val cCenterYPct = 0.52f
-    private val cButtonRadiusPct = 0.075f
-    private val cButtonSpacingPct = 0.075f
+    // C-button cluster
+    private val cOffsetFromMainPct = 0.40f // horizontal distance to the left of the main cluster
+    private val cRadiusPct = 0.058f
+    private val cSpacingPct = 0.10f
 
-    // Z button (mapped to L2, the standard N64 "Z" trigger mapping)
-    private val zCenterXPct = 0.58f
-    private val zCenterYPct = 0.80f
-    private val zButtonRadiusPct = 0.08f
+    // Z (top-left shoulder button)
+    private val zInsetPct = 0.15f
+    private val zRadiusPct = 0.09f
+
+    // Start (top-center)
+    private val startTopInsetPct = 0.14f
+    private val startRadiusPct = 0.075f
 
     private var leftPointerId: Int = -1
     private var buttonPointers = mutableMapOf<Int, Int>() // pointerId -> keycode
@@ -71,126 +86,133 @@ class TouchOverlayView(
     private var cButtonPointers = mutableMapOf<Int, Int>() // pointerId -> direction flag
 
     init {
-        // semi-transparent controls
-        paint.style = Paint.Style.FILL
-        paint.color = Color.argb(110, 0, 0, 0)
         isClickable = true
         isFocusable = true
         isFocusableInTouchMode = true
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    // --- Geometry helpers (single source of truth shared by draw + hit-test) ---
 
-        val w = width.toFloat()
-        val h = height.toFloat()
+    private fun unit() = min(width, height).toFloat()
 
-        // Draw left stick base
-        val leftCx = w * leftCenterXPct
-        val leftCy = h * leftCenterYPct
-        val stickR = min(w, h) * stickRadiusPct
-        paint.color = Color.argb(90, 255, 255, 255)
-        canvas.drawCircle(leftCx, leftCy, stickR, paint)
-
-        // Draw right buttons (A/B/X/Y) - 40% more transparent than original (160 -> 96 alpha)
-        val rightCx = w * rightCenterXPct
-        val rightCy = h * rightCenterYPct
-        val btnR = min(w, h) * buttonRadiusPct
-        val spacing = min(w, h) * buttonSpacingPct
-
-        paint.color = Color.argb(96, 200, 0, 0)
-        // A (bottom-right)
-        canvas.drawCircle(rightCx + spacing, rightCy + spacing, btnR, paint)
-        // B (bottom-left)
-        canvas.drawCircle(rightCx - spacing, rightCy + spacing, btnR, paint)
-        // X (top-right)
-        canvas.drawCircle(rightCx + spacing, rightCy - spacing, btnR, paint)
-        // Y (top-left)
-        canvas.drawCircle(rightCx - spacing, rightCy - spacing, btnR, paint)
-
-        // Start small circle in center-top
-        paint.color = Color.argb(120, 0, 120, 200)
-        canvas.drawCircle(w * 0.5f, h * 0.12f, btnR * 0.8f, paint)
-
-        // Draw C-button cluster (amber, like real N64 C buttons)
-        val cCx = w * cCenterXPct
-        val cCy = h * cCenterYPct
-        val cR = min(w, h) * cButtonRadiusPct
-        val cSpacing = min(w, h) * cButtonSpacingPct
-
-        paint.color = Color.argb(140, 210, 170, 0)
-        textPaint.textSize = cR * 0.9f
-        drawLabeledCircle(canvas, cCx, cCy - cSpacing, cR, "C\u2191") // C-Up
-        drawLabeledCircle(canvas, cCx, cCy + cSpacing, cR, "C\u2193") // C-Down
-        drawLabeledCircle(canvas, cCx - cSpacing, cCy, cR, "C\u2190") // C-Left
-        drawLabeledCircle(canvas, cCx + cSpacing, cCy, cR, "C\u2192") // C-Right
-
-        // Draw Z button
-        val zCx = w * zCenterXPct
-        val zCy = h * zCenterYPct
-        val zR = min(w, h) * zButtonRadiusPct
-        paint.color = Color.argb(150, 40, 40, 50)
-        textPaint.textSize = zR
-        drawLabeledCircle(canvas, zCx, zCy, zR, "Z")
+    private fun leftCenter(): Pair<Float, Float> {
+        val u = unit()
+        return Pair(u * leftInsetPct, height - u * leftBottomInsetPct)
     }
 
-    private fun drawLabeledCircle(canvas: Canvas, cx: Float, cy: Float, r: Float, label: String) {
-        canvas.drawCircle(cx, cy, r, paint)
+    private fun rightCenter(): Pair<Float, Float> {
+        val u = unit()
+        return Pair(width - u * rightInsetPct, height - u * rightBottomInsetPct)
+    }
+
+    private fun cCenter(): Pair<Float, Float> {
+        val (rcx, rcy) = rightCenter()
+        val u = unit()
+        return Pair(rcx - u * cOffsetFromMainPct, rcy)
+    }
+
+    private fun zCenter(): Pair<Float, Float> {
+        val u = unit()
+        return Pair(u * zInsetPct, u * zInsetPct)
+    }
+
+    private fun startCenter(): Pair<Float, Float> {
+        val u = unit()
+        return Pair(width * 0.5f, u * startTopInsetPct)
+    }
+
+    private fun drawLabeledCircle(canvas: Canvas, cx: Float, cy: Float, r: Float, color: Int, label: String) {
+        fillPaint.color = color
+        canvas.drawCircle(cx, cy, r, fillPaint)
+        strokePaint.strokeWidth = r * 0.06f
+        canvas.drawCircle(cx, cy, r, strokePaint)
+        textPaint.textSize = r * 0.85f
         val textY = cy - (textPaint.descent() + textPaint.ascent()) / 2f
         canvas.drawText(label, cx, textY, textPaint)
     }
 
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val u = unit()
+
+        // --- Left stick ---
+        val (leftCx, leftCy) = leftCenter()
+        val dragR = u * stickDragRangePct
+        canvas.drawCircle(leftCx, leftCy, dragR, guidePaint) // faint boundary = real drag range
+        fillPaint.color = Color.argb(90, 255, 255, 255)
+        canvas.drawCircle(leftCx, leftCy, u * stickRadiusPct, fillPaint)
+        strokePaint.strokeWidth = u * 0.004f
+        canvas.drawCircle(leftCx, leftCy, u * stickRadiusPct, strokePaint)
+
+        // --- Main buttons (A/B/X/Y), 40% more transparent than the original design ---
+        val (rightCx, rightCy) = rightCenter()
+        val btnR = u * buttonRadiusPct
+        val sp = u * buttonSpacingPct
+        val red = Color.argb(96, 200, 0, 0)
+        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, red, "A")
+        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, red, "B")
+        drawLabeledCircle(canvas, rightCx + sp, rightCy - sp, btnR, red, "X")
+        drawLabeledCircle(canvas, rightCx - sp, rightCy - sp, btnR, red, "Y")
+
+        // --- C-button cluster ---
+        val (cCx, cCy) = cCenter()
+        val cR = u * cRadiusPct
+        val cSp = u * cSpacingPct
+        val amber = Color.argb(150, 210, 170, 0)
+        drawLabeledCircle(canvas, cCx, cCy - cSp, cR, amber, "\u2191")
+        drawLabeledCircle(canvas, cCx, cCy + cSp, cR, amber, "\u2193")
+        drawLabeledCircle(canvas, cCx - cSp, cCy, cR, amber, "\u2190")
+        drawLabeledCircle(canvas, cCx + cSp, cCy, cR, amber, "\u2192")
+
+        // --- Z (top-left shoulder) ---
+        val (zCx, zCy) = zCenter()
+        drawLabeledCircle(canvas, zCx, zCy, u * zRadiusPct, Color.argb(150, 40, 40, 50), "Z")
+
+        // --- Start (top-center) ---
+        val (startCx, startCy) = startCenter()
+        drawLabeledCircle(canvas, startCx, startCy, u * startRadiusPct, Color.argb(130, 0, 110, 190), "+")
+    }
+
     private fun insideLeftArea(x: Float, y: Float): Boolean {
-        val w = width.toFloat(); val h = height.toFloat()
-        val leftCx = w * leftCenterXPct
-        val leftCy = h * leftCenterYPct
-        val areaW = w * leftAreaWidthPct
-        val areaH = h * leftAreaHeightPct
-        return abs(x - leftCx) <= areaW/2 && abs(y - leftCy) <= areaH/2
+        val (leftCx, leftCy) = leftCenter()
+        val dragR = unit() * stickDragRangePct
+        return hypot(x - leftCx, y - leftCy) <= dragR
     }
 
     private fun rightButtonAt(x: Float, y: Float): Int? {
-        val w = width.toFloat(); val h = height.toFloat()
-        val rightCx = w * rightCenterXPct
-        val rightCy = h * rightCenterYPct
-        val btnR = min(w, h) * buttonRadiusPct
-        val spacing = min(w, h) * buttonSpacingPct
+        val u = unit()
+        val (rightCx, rightCy) = rightCenter()
+        val btnR = u * buttonRadiusPct
+        val sp = u * buttonSpacingPct
 
         fun hit(cx: Float, cy: Float) = hypot(x - cx, y - cy) <= btnR
 
-        // A: bottom-right
-        if (hit(rightCx + spacing, rightCy + spacing)) return KeyEvent.KEYCODE_BUTTON_A
-        // B: bottom-left
-        if (hit(rightCx - spacing, rightCy + spacing)) return KeyEvent.KEYCODE_BUTTON_B
-        // X: top-right
-        if (hit(rightCx + spacing, rightCy - spacing)) return KeyEvent.KEYCODE_BUTTON_X
-        // Y: top-left
-        if (hit(rightCx - spacing, rightCy - spacing)) return KeyEvent.KEYCODE_BUTTON_Y
-        // Start (center top)
-        if (hypot(x - w*0.5f, y - h*0.12f) <= btnR*0.8f) return KeyEvent.KEYCODE_BUTTON_START
+        if (hit(rightCx + sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_A
+        if (hit(rightCx - sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_B
+        if (hit(rightCx + sp, rightCy - sp)) return KeyEvent.KEYCODE_BUTTON_X
+        if (hit(rightCx - sp, rightCy - sp)) return KeyEvent.KEYCODE_BUTTON_Y
 
-        // Z button (mapped to L2, the standard N64 Z-trigger mapping)
-        val zCx = w * zCenterXPct
-        val zCy = h * zCenterYPct
-        val zR = min(w, h) * zButtonRadiusPct
-        if (hypot(x - zCx, y - zCy) <= zR) return KeyEvent.KEYCODE_BUTTON_L2
+        val (startCx, startCy) = startCenter()
+        if (hypot(x - startCx, y - startCy) <= u * startRadiusPct) return KeyEvent.KEYCODE_BUTTON_START
+
+        val (zCx, zCy) = zCenter()
+        if (hypot(x - zCx, y - zCy) <= u * zRadiusPct) return KeyEvent.KEYCODE_BUTTON_L2
 
         return null
     }
 
     private fun cButtonDirectionAt(x: Float, y: Float): Int? {
-        val w = width.toFloat(); val h = height.toFloat()
-        val cCx = w * cCenterXPct
-        val cCy = h * cCenterYPct
-        val cR = min(w, h) * cButtonRadiusPct
-        val cSpacing = min(w, h) * cButtonSpacingPct
+        val u = unit()
+        val (cCx, cCy) = cCenter()
+        val cR = u * cRadiusPct
+        val cSp = u * cSpacingPct
 
         fun hit(cx: Float, cy: Float) = hypot(x - cx, y - cy) <= cR
 
-        if (hit(cCx, cCy - cSpacing)) return C_UP
-        if (hit(cCx, cCy + cSpacing)) return C_DOWN
-        if (hit(cCx - cSpacing, cCy)) return C_LEFT
-        if (hit(cCx + cSpacing, cCy)) return C_RIGHT
+        if (hit(cCx, cCy - cSp)) return C_UP
+        if (hit(cCx, cCy + cSp)) return C_DOWN
+        if (hit(cCx - cSp, cCy)) return C_LEFT
+        if (hit(cCx + cSp, cCy)) return C_RIGHT
 
         return null
     }
@@ -202,7 +224,6 @@ class TouchOverlayView(
         for (flag in cButtonPointers.values) {
             if (flag and C_LEFT != 0) x -= 1f
             if (flag and C_RIGHT != 0) x += 1f
-            // Up = negative Y, Down = positive Y (matches the corrected left-stick convention)
             if (flag and C_UP != 0) y -= 1f
             if (flag and C_DOWN != 0) y += 1f
         }
@@ -210,12 +231,7 @@ class TouchOverlayView(
         x = x.coerceIn(-1f, 1f)
         y = y.coerceIn(-1f, 1f)
 
-        retroView.sendMotionEvent(
-            GLRetroView.MOTION_SOURCE_ANALOG_RIGHT,
-            x,
-            y,
-            port
-        )
+        retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, x, y, port)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -227,14 +243,12 @@ class TouchOverlayView(
                 val x = event.getX(index)
                 val y = event.getY(index)
 
-                // Buttons (right side, incl. Start/Z) take precedence
                 rightButtonAt(x, y)?.let { key ->
                     buttonPointers[pid] = key
                     retroView.sendKeyEvent(KeyEvent.ACTION_DOWN, key, port)
                     return true
                 }
 
-                // C-button cluster
                 cButtonDirectionAt(x, y)?.let { direction ->
                     cButtonPointers[pid] = direction
                     updateCAnalog()
@@ -242,20 +256,17 @@ class TouchOverlayView(
                 }
 
                 if (insideLeftArea(x, y)) {
-                    // start tracking left pointer
                     leftPointerId = pid
                     handleLeftTouch(x, y)
                     return true
                 }
             }
             MotionEvent.ACTION_MOVE -> {
-                // multiple pointers possible
                 for (i in 0 until event.pointerCount) {
                     val pid = event.getPointerId(i)
                     val x = event.getX(i)
                     val y = event.getY(i)
 
-                    // button/C-button moves are ignored (only down/up matter)
                     if (buttonPointers.containsKey(pid)) continue
                     if (cButtonPointers.containsKey(pid)) continue
 
@@ -266,25 +277,21 @@ class TouchOverlayView(
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                // Input was interrupted; clear all state and release any active buttons/axes
                 resetState()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val pid = event.getPointerId(index)
-                // button release
                 buttonPointers.remove(pid)?.let { key ->
                     retroView.sendKeyEvent(KeyEvent.ACTION_UP, key, port)
                     return true
                 }
-                // C-button release
                 if (cButtonPointers.containsKey(pid)) {
                     cButtonPointers.remove(pid)
                     updateCAnalog()
                     return true
                 }
                 if (pid == leftPointerId) {
-                    // reset left stick / dpad
                     leftPointerId = -1
                     if (n64Handler.useAnalogStick) {
                         n64Handler.sendVirtualAnalogLeft(0f, 0f, retroView, port)
@@ -299,26 +306,20 @@ class TouchOverlayView(
     }
 
     private fun handleLeftTouch(x: Float, y: Float) {
-        val w = width.toFloat(); val h = height.toFloat()
-        val cx = w * leftCenterXPct
-        val cy = h * leftCenterYPct
-        val maxR = min(w, h) * stickRadiusPct * 1.6f
+        val (cx, cy) = leftCenter()
+        val maxR = unit() * stickDragRangePct
 
         var dx = (x - cx) / maxR
         var dy = (y - cy) / maxR
-        // Do NOT invert Y here. Touching above center already yields a negative
-        // dy, and both the physical-controller path (N64InputHandler) and the
-        // retro core expect negative-Y = up / positive-Y = down. The previous
-        // extra negation flipped this, causing "up" to move the character down.
+        // Do NOT invert Y: negative-Y = up / positive-Y = down matches both
+        // the physical-controller path (N64InputHandler) and what the core expects.
 
-        // clamp
         dx = dx.coerceIn(-1f, 1f)
         dy = dy.coerceIn(-1f, 1f)
 
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(dx, dy, retroView, port)
         } else {
-            // quantize to digital -1/0/1 with 0.5 threshold
             val qx = when {
                 dx > 0.5f -> 1f
                 dx < -0.5f -> -1f
@@ -333,22 +334,15 @@ class TouchOverlayView(
         }
     }
 
-    /**
-     * Reset internal touch tracking and release any active virtual controls.
-     * Used when switching input modes (analog <-> dpad) so the change takes effect immediately.
-     */
     fun resetState() {
-        // Release any pressed button pointers
         for ((_, key) in buttonPointers) {
             retroView.sendKeyEvent(KeyEvent.ACTION_UP, key, port)
         }
         buttonPointers.clear()
 
-        // Release any pressed C-button pointers
         cButtonPointers.clear()
         retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, 0f, 0f, port)
 
-        // Clear left pointer tracking and send zeroed axes
         leftPointerId = -1
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(0f, 0f, retroView, port)
