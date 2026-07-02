@@ -9,7 +9,6 @@ import android.os.Build
 import android.text.InputType
 import android.view.*
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -17,7 +16,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.AndroidViewModel
 import com.draco.ludere.R
 import com.draco.ludere.gamepad.GamePad
-import com.draco.ludere.gamepad.GamePadConfig
 import com.draco.ludere.input.ControllerInput
 import com.draco.ludere.input.TouchOverlayView
 import com.draco.ludere.retroview.RetroView
@@ -259,7 +257,11 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
             
             val input = EditText(activity)
             input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            input.setText(retroView.view.frameSpeed.toString())
+            
+            // If retroView.view.frameSpeed is an Int percentage internally (e.g. 100), 
+            // convert it back to a decimal display format string (e.g. "1.0")
+            val currentSpeedDecimal = retroView.view.frameSpeed.toFloat() / 100f
+            input.setText(currentSpeedDecimal.toString())
             input.setSelection(input.text.length)
             layout.addView(input)
             
@@ -281,7 +283,8 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
             builder.setPositiveButton("OK") { _, _ ->
                 val speedStr = input.text.toString()
                 val speed = speedStr.toFloatOrNull() ?: 1.0f
-                retroView.view.frameSpeed = speed
+                // Fixed: Explicitly convert the float value to an Int percentage (e.g., 1.5f -> 150)
+                retroView.view.frameSpeed = (speed * 100).toInt()
             }
             builder.setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
             
