@@ -78,7 +78,7 @@ jobs:
       - name: Create release and upload asset
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ludere-autogen-${{ steps.date.outputs.date }}
+          tag_name: "ludere-autogen-${{ steps.date.outputs.date }}"
           name: "Ludere Autogen ${{ steps.date.outputs.date }}"
           files: ./autogen/output/output.zip
         env:
