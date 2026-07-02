@@ -1,4 +1,4 @@
-name: Autogen
+Name: Autogen
 
 on:
   workflow_dispatch:
@@ -26,12 +26,12 @@ jobs:
       - name: Clear Android SDK cache
         run: |
           rm -rf /usr/local/lib/android/sdk/platforms/android-35 || true
-          rm -rf \~/.android || true
+          rm -rf ~/.android || true
           echo "SDK cache cleared"
 
       - name: Clear Gradle cache
         run: |
-          rm -rf \~/.gradle/caches || true
+          rm -rf ~/.gradle/caches || true
           rm -rf .gradle || true
           echo "Gradle cache cleared"
 
@@ -58,12 +58,10 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y xmlstarlet
 
-      - name: Make generate script executable
-        run: chmod +x ./autogen/generate
-
       - name: Run autogen
         run: |
           echo "Starting autogen..."
+          chmod +x ./autogen/generate
           ./autogen/generate
           echo "Autogen completed"
 
