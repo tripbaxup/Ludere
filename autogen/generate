@@ -105,7 +105,7 @@ build_inputs() {
 			romid="${romid,,}"			
 
 			# Assert valid romid
-			if [[ ! "$romid" =\~ ^[a-z] ]]
+			if [[ ! "$romid" =~ ^[a-z] ]]
 			then
 				err "$romid must start with a letter! Skipping..."
 				continue
