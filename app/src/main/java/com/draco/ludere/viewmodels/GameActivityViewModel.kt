@@ -259,9 +259,10 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
             val input = EditText(activity)
             input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             
-            // If retroView.view.frameSpeed is an Int percentage internally (e.g. 100), 
-            // convert it back to a decimal display format string (e.g. "1.0")
-            val currentSpeedDecimal = retroView.view.frameSpeed.toFloat() / 100f
+            // retroView.view.frameSpeed is a plain integer multiplier
+            // (1 = normal, 2 = 2x, 4 = 4x, ...), NOT a percentage.
+            // Display it directly as a decimal multiplier (e.g. "1.0").
+            val currentSpeedDecimal = retroView.view.frameSpeed.toFloat()
             input.setText(currentSpeedDecimal.toString())
             input.setSelection(input.text.length)
             layout.addView(input)
@@ -284,8 +285,11 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
             builder.setPositiveButton("OK") { _, _ ->
                 val speedStr = input.text.toString()
                 val speed = speedStr.toFloatOrNull() ?: 1.0f
-                // Fixed: Explicitly convert the float value to an Int percentage (e.g., 1.5f -> 150)
-                retroView.view.frameSpeed = (speed * 100).toInt()
+                // frameSpeed is a plain integer multiplier (1 = normal speed).
+                // Do NOT multiply by 100 -- that treats it as a percentage and
+                // was causing e.g. "1.00" (normal speed) to set frameSpeed to
+                // 100 (100x speed) instead of 1 (1x speed).
+                retroView.view.frameSpeed = speed.toInt().coerceAtLeast(1)
             }
             builder.setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
             
