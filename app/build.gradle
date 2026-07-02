@@ -6,10 +6,13 @@ plugins {
 android {
     compileSdkVersion 34
     buildToolsVersion '34.0.0'
-    namespace "com.draco.ludere"
+    namespace "com.trip.forward"
 
     defaultConfig {
-        applicationId "com.draco.ludere"
+        def configId = new XmlParser()
+            .parse(file("${rootProject.projectDir.path}/app/src/main/res/values/config.xml"))
+            .string.find { it.@name.equals 'config_id' }.text()
+        applicationId "com.trip.forward.${configId}"
         minSdkVersion 21
         targetSdkVersion 35
         versionCode 1
@@ -74,12 +77,12 @@ task prepareCore {
 
             jniAbiFolder.mkdirs()
 
-            def downloadUrl = "https://buildbot.libretro.com/nightly/android/latest/$abi/${configValue('config_core')}_libretro_android.so.zip"
-            def zipPath = "${rootProject.projectDir}/app/src/main/jniLibs/$abi/${configValue('config_core')}_libretro_android.so.zip"
+            def downloadUrl = "https://buildbot.libretro.com/nightly/android/latest/\( abi/ \){configValue('config_core')}_libretro_android.so.zip"
+            def zipPath = "${rootProject.projectDir}/app/src/main/jniLibs/\( abi/ \){configValue('config_core')}_libretro_android.so.zip"
             
             println("Downloading core for $abi...")
             
-            def pb = new ProcessBuilder("bash", "-c", "curl -fL# '${downloadUrl}' -o '${zipPath}'")
+            def pb = new ProcessBuilder("bash", "-c", "curl -fL# '\( {downloadUrl}' -o ' \){zipPath}'")
             pb.directory(rootProject.projectDir)
             pb.inheritIO()
             def process = pb.start()
