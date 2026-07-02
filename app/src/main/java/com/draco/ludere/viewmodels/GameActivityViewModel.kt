@@ -6,8 +6,12 @@ import android.content.Context
 import android.content.DialogInterface
 import android.content.pm.ActivityInfo
 import android.os.Build
+import android.text.InputType
 import android.view.*
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.AndroidViewModel
@@ -229,7 +233,7 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
                             it.view.audioEnabled = !it.view.audioEnabled
                         }
                         context.getString(R.string.menu_fast_forward) -> retroView?.let {
-                            retroViewUtils?.fastForward(it)
+                            showSpeedDialog(it)
                         }
                     }
                 }
@@ -241,6 +245,47 @@ class GameActivityViewModel(application: Application) : AndroidViewModel(applica
                     prefs.edit().putBoolean("touch_use_analog", controllerInput.n64InputHandler.useAnalogStick).apply()
                 }
             }
+        }
+        
+        private fun showSpeedDialog(retroView: RetroView) {
+            val activity = retroView.view.context as? Activity ?: return
+            
+            val builder = AlertDialog.Builder(activity)
+            builder.setTitle("Set Game Speed")
+            
+            val layout = LinearLayout(activity)
+            layout.orientation = LinearLayout.VERTICAL
+            layout.setPadding(50, 40, 50, 10)
+            
+            val input = EditText(activity)
+            input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            input.setText(retroView.view.frameSpeed.toString())
+            input.setSelection(input.text.length)
+            layout.addView(input)
+            
+            val helpText = TextView(activity)
+            helpText.text = """
+                1.00 = normal
+                0.95 = slightly slower
+                0.90 = slower
+                0.80 = noticeably slower
+                1.10 = slightly faster
+                2.00 = double speed
+            """.trimIndent()
+            helpText.textSize = 14f
+            helpText.setPadding(0, 20, 0, 0)
+            layout.addView(helpText)
+            
+            builder.setView(layout)
+            
+            builder.setPositiveButton("OK") { _, _ ->
+                val speedStr = input.text.toString()
+                val speed = speedStr.toFloatOrNull() ?: 1.0f
+                retroView.view.frameSpeed = speed
+            }
+            builder.setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
+            
+            builder.show()
         }
     }
 }
