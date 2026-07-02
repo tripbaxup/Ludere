@@ -1,4 +1,4 @@
-Name: Autogen
+name: Autogen
 
 on:
   workflow_dispatch:
