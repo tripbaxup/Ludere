@@ -2,6 +2,7 @@ package com.draco.ludere.views
 
 import android.app.Service
 import android.hardware.input.InputManager
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -18,6 +19,17 @@ class GameActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityGameBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Lock the window's preferred refresh rate to 60Hz. On phones with
+        // 90Hz/120Hz screens, letting the display run at its native high
+        // refresh rate can make the emulator's frame pacing drift slightly
+        // faster than intended, which feels like a mild fast-forward.
+        // Pinning to 60Hz keeps N64 emulation running at its native speed.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val params = window.attributes
+            params.preferredRefreshRate = 60f
+            window.attributes = params
+        }
 
         /* Use immersive mode when we change the window insets */
         window.decorView.setOnApplyWindowInsetsListener { view, windowInsets ->
