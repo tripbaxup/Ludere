@@ -50,11 +50,13 @@ class TouchOverlayView(
         isFakeBoldText = true
     }
 
-    // Left stick
-    private val leftInsetPct = 0.26f      // distance from left edge, in units of min(w,h)
-    private val leftBottomInsetPct = 0.30f // distance from bottom edge
-    private val stickRadiusPct = 0.13f
-    private val stickDragRangePct = 0.34f  // actual draggable range (matches the drawn guide ring)
+    // Left stick (improved for racing games)
+// Moved farther inward so your thumb has full travel when steering left.
+// Slightly larger stick and increased drag range for finer analog control.
+private val leftInsetPct = 0.33f          // was 0.26f
+private val leftBottomInsetPct = 0.26f    // was 0.30f
+private val stickRadiusPct = 0.15f        // was 0.13f
+private val stickDragRangePct = 0.40f     // was 0.34f
 
     // Main face buttons (A/B/X/Y)
     private val rightInsetPct = 0.30f
