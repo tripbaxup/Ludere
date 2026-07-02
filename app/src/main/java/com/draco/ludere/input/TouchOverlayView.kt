@@ -50,13 +50,28 @@ class TouchOverlayView(
         isFakeBoldText = true
     }
 
-    // Left stick (improved for racing games)
-// Moved farther inward so your thumb has full travel when steering left.
-// Slightly larger stick and increased drag range for finer analog control.
-private val leftInsetPct = 0.33f          // was 0.26f
-private val leftBottomInsetPct = 0.26f    // was 0.30f
-private val stickRadiusPct = 0.15f        // was 0.13f
-private val stickDragRangePct = 0.40f     // was 0.34f
+    // Left stick.
+    //
+    // IMPORTANT: leftInsetPct / leftBottomInsetPct must each be >= stickDragRangePct
+    // (with a little margin). The stick's drag ring extends stickDragRangePct*u in
+    // every direction from its center; if the inset from an edge is smaller than
+    // that radius, a thumb can never physically travel far enough in that
+    // direction to reach full deflection (it hits the screen edge first), while
+    // the opposite/unclipped directions saturate normally. That mismatch is what
+    // produced the "left feels resistant, right feels twitchy" behavior -- left
+    // and down were geometrically clipped by the screen edge and could never
+    // reach magnitude 1.0, right and up could. Keeping a >=0.06u margin here
+    // keeps the full ring on-screen in all directions so sensitivity is
+    // symmetric, and also trims the visual footprint (less clutter) in portrait.
+    private val leftInsetPct = 0.36f
+    private val leftBottomInsetPct = 0.36f
+    private val stickRadiusPct = 0.13f
+    private val stickDragRangePct = 0.30f
+
+    // Small radial deadzone (with rescale) around the stick center so tiny
+    // touch jitter near rest doesn't register as unintended input. Rescaling
+    // the remaining range back to 0..1 avoids a "dead spot then jump" feel.
+    private val stickDeadzonePct = 0.08f
 
     // Main face buttons (A/B/X/Y)
     private val rightInsetPct = 0.30f
@@ -178,14 +193,14 @@ private val stickDragRangePct = 0.40f     // was 0.34f
         val u = unit()
         val thickness = r * 0.65f
         val length = r * 2.0f
-        
+
         fillPaint.color = Color.argb(90, 255, 255, 255)
         strokePaint.strokeWidth = u * 0.004f
 
         // Horizontal bar
         canvas.drawRect(cx - length/2, cy - thickness/2, cx + length/2, cy + thickness/2, fillPaint)
         canvas.drawRect(cx - length/2, cy - thickness/2, cx + length/2, cy + thickness/2, strokePaint)
-        
+
         // Vertical bar
         canvas.drawRect(cx - thickness/2, cy - length/2, cx + thickness/2, cy + length/2, fillPaint)
         canvas.drawRect(cx - thickness/2, cy - length/2, cx + thickness/2, cy + length/2, strokePaint)
@@ -206,7 +221,7 @@ private val stickDragRangePct = 0.40f     // was 0.34f
         // --- Left stick / DPAD ---
         val (leftCx, leftCy) = leftCenter()
         val dragR = u * stickDragRangePct
-        
+
         if (n64Handler.useAnalogStick) {
             val knobR = u * stickRadiusPct
             canvas.drawCircle(leftCx, leftCy, dragR, guidePaint) // faint boundary = real drag range
@@ -223,7 +238,7 @@ private val stickDragRangePct = 0.40f     // was 0.34f
             canvas.drawCircle(knobCx, knobCy, knobR, strokePaint)
         } else {
             drawDpad(canvas, leftCx, leftCy, dragR * 0.8f)
-            
+
             // Draw a small indicator for the current DPAD press
             if (stickVisualDx != 0f || stickVisualDy != 0f) {
                 val indicatorR = u * 0.03f
@@ -392,6 +407,20 @@ private val stickDragRangePct = 0.40f     // was 0.34f
         return false
     }
 
+    /**
+     * Radial deadzone with rescale: inputs inside stickDeadzonePct magnitude
+     * become exactly 0, and everything beyond that is linearly rescaled back
+     * onto the full 0..1 range so there's no sudden jump right after the
+     * deadzone boundary. Keeps the stick from drifting/jittering at rest
+     * without adding a "dead spot" feel once you actually push it.
+     */
+    private fun applyDeadzone(dx: Float, dy: Float): Pair<Float, Float> {
+        val mag = hypot(dx, dy)
+        if (mag <= stickDeadzonePct) return Pair(0f, 0f)
+        val scale = ((mag - stickDeadzonePct) / (1f - stickDeadzonePct)) / mag
+        return Pair(dx * scale, dy * scale)
+    }
+
     private fun handleLeftTouch(x: Float, y: Float) {
         val (cx, cy) = leftCenter()
         val maxR = unit() * stickDragRangePct
@@ -400,10 +429,10 @@ private val stickDragRangePct = 0.40f     // was 0.34f
         val rawDx = x - cx
         val rawDy = y - cy
         val dist = sqrt(rawDx * rawDx + rawDy * rawDy)
-        
-        val dx: Float
-        val dy: Float
-        
+
+        var dx: Float
+        var dy: Float
+
         if (dist > maxR) {
             dx = rawDx / dist
             dy = rawDy / dist
@@ -413,13 +442,15 @@ private val stickDragRangePct = 0.40f     // was 0.34f
         }
 
         // Update the on-screen knob position so it visually tracks the
-        // thumb, then invalidate to trigger a redraw with the new offset.
+        // thumb (pre-deadzone, so the knob always matches where your thumb
+        // actually is), then invalidate to trigger a redraw with the new offset.
         stickVisualDx = dx
         stickVisualDy = dy
         invalidate()
 
         if (n64Handler.useAnalogStick) {
-            n64Handler.sendVirtualAnalogLeft(dx, dy, retroView, port)
+            val (adx, ady) = applyDeadzone(dx, dy)
+            n64Handler.sendVirtualAnalogLeft(adx, ady, retroView, port)
         } else {
             // D-PAD quantization with a small diagonal tolerance
             val qx = when {
@@ -432,11 +463,11 @@ private val stickDragRangePct = 0.40f     // was 0.34f
                 dy < -0.3f -> -1f
                 else -> 0f
             }
-            
+
             // For visual feedback in D-PAD mode, we might want to snap the indicator
             stickVisualDx = qx
             stickVisualDy = qy
-            
+
             n64Handler.sendVirtualDpad(qx, qy, retroView, port)
         }
     }
