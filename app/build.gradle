@@ -6,7 +6,7 @@ plugins {
 android {
     compileSdkVersion 34
     buildToolsVersion '34.0.0'
-    namespace "com.trip.forward"
+    namespace "com.draco.ludere"
 
     defaultConfig {
         def configId = new XmlParser()
