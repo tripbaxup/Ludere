@@ -4,12 +4,14 @@ import android.app.Service
 import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Display
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.draco.ludere.databinding.ActivityGameBinding
 import com.draco.ludere.viewmodels.GameActivityViewModel
+import kotlin.math.abs
 
 class GameActivity : AppCompatActivity() {
     private lateinit var binding: ActivityGameBinding
@@ -20,16 +22,7 @@ class GameActivity : AppCompatActivity() {
         binding = ActivityGameBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Lock the window's preferred refresh rate to 60Hz. On phones with
-        // 90Hz/120Hz screens, letting the display run at its native high
-        // refresh rate can make the emulator's frame pacing drift slightly
-        // faster than intended, which feels like a mild fast-forward.
-        // Pinning to 60Hz keeps N64 emulation running at its native speed.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val params = window.attributes
-            params.preferredRefreshRate = 60f
-            window.attributes = params
-        }
+        lockRefreshRateTo60Hz()
 
         /* Use immersive mode when we change the window insets */
         window.decorView.setOnApplyWindowInsetsListener { view, windowInsets ->
@@ -43,6 +36,50 @@ class GameActivity : AppCompatActivity() {
         viewModel.prepareMenu(this)
         viewModel.setupRetroView(this, binding.retroviewContainer)
         viewModel.setupGamePads(binding.leftContainer, binding.rightContainer)
+    }
+
+    /**
+     * N64 content is authored for 60fps (NTSC). LibretroDroid paces
+     * emulation and audio dynamic-rate-control off the display's actual
+     * vsync signal, so on adaptive/high-refresh-rate panels (90Hz, 120Hz,
+     * LTPO "Smooth Display" on Pixel devices) the emulator can end up
+     * running slightly faster than intended, with audio pitching up to
+     * match.
+     *
+     * `preferredRefreshRate` is only a hint and is frequently ignored by
+     * Pixel's adaptive display logic, especially for content rendered
+     * inside a SurfaceView/GLSurfaceView (which is what GLRetroView uses
+     * internally). Explicitly selecting a concrete 60Hz display mode via
+     * `preferredDisplayModeId` is honored far more reliably.
+     */
+    private fun lockRefreshRateTo60Hz() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+
+        val display: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
+        }
+
+        val sixtyHzMode = display
+            ?.supportedModes
+            ?.filter { it.refreshRate in 59.5..60.5 }
+            // Prefer the mode that also matches the display's current resolution
+            ?.minByOrNull { mode ->
+                val currentMode = display.mode
+                abs(mode.physicalWidth - currentMode.physicalWidth) +
+                    abs(mode.physicalHeight - currentMode.physicalHeight)
+            }
+
+        val params = window.attributes
+        if (sixtyHzMode != null) {
+            params.preferredDisplayModeId = sixtyHzMode.modeId
+        } else {
+            // Fall back to the soft hint if no exact 60Hz mode is reported
+            params.preferredRefreshRate = 60f
+        }
+        window.attributes = params
     }
 
     /**
