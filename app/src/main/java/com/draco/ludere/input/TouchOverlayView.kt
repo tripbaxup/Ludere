@@ -65,6 +65,7 @@ class TouchOverlayView(
     // symmetric, and also trims the visual footprint (less clutter) in portrait.
     private val leftInsetPct = 0.36f
     private val leftBottomInsetPct = 0.36f
+    private val leftBottomInsetPortraitPct = 0.56f
     private val stickRadiusPct = 0.13f
     private val stickDragRangePct = 0.30f
 
@@ -121,7 +122,17 @@ class TouchOverlayView(
 
     private fun leftCenter(): Pair<Float, Float> {
         val u = unit()
-        return Pair(u * leftInsetPct, height - u * leftBottomInsetPct)
+
+        val bottomInset = if (isPortrait()) {
+            leftBottomInsetPortraitPct
+        } else {
+            leftBottomInsetPct
+        }
+
+        return Pair(
+            u * leftInsetPct,
+            height - u * bottomInset
+        )
     }
 
     private fun rightCenter(): Pair<Float, Float> {
