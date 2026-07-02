@@ -39,7 +39,6 @@ gradlew() {
 # Get a value from the config file given a name
 config_val() {
 	local name="$1"
-
 	grep "name=\"$1\"" "$CONFIG" | grep -o -P '(?<=>).*(?=</)'
 }
 
@@ -47,14 +46,12 @@ config_val() {
 config_replace() {
 	local name="$1"
 	local value="$2"
-
 	xmlstarlet ed -L -u "/resources/string[@name='$name']" -v "$value" "$CONFIG"
 }
 
 # Make sure necessary folders are here
 prepare_env() {
 	local abi
-
 	# Create raw directory if missing
 	[[ ! -d "$RAW_DIR" ]] && mkdir -p "$RAW_DIR"
 
@@ -108,7 +105,7 @@ build_inputs() {
 			romid="${romid,,}"			
 
 			# Assert valid romid
-			if [[ ! "$romid" =~ ^[a-z] ]]
+			if [[ ! "$romid" =\~ ^[a-z] ]]
 			then
 				err "$romid must start with a letter! Skipping..."
 				continue
@@ -120,13 +117,25 @@ build_inputs() {
 			core="$(config_val "config_core")"
 
 			# File name of output excluding extension
-			output_filename="${core}_${romid}"
+			output_filename="\( {core}_ \){romid}"
 
 			# Skip build if already built
 			[[ -f "$OUTPUT_DIR/aab/$output_filename.aab" ]] && continue
 
 			# Copy rom to build directory
 			cp "$rom" "$ROM"
+
+			# Handle custom icon if provided in subdir (icon.png)
+			ICON_SRC="$subdir/icon.png"
+			if [ -f "$ICON_SRC" ]; then
+				log "Using custom icon.png"
+				for mipmap_dir in "$PROJECT_ROOT/app/src/main/res/mipmap-"*; do
+					if [ -d "$mipmap_dir" ]; then
+						cp "$ICON_SRC" "$mipmap_dir/ic_launcher.png"
+						cp "$ICON_SRC" "$mipmap_dir/ic_launcher_round.png" 2>/dev/null || true
+					fi
+				done
+			fi
 
 			log "----- BUILDING -----"
 			log "FILENAME:\t$filename..."
