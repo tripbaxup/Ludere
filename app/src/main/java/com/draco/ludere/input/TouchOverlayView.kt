@@ -172,26 +172,64 @@ class TouchOverlayView(
         canvas.drawText(label, cx, textY, textPaint)
     }
 
+    private fun drawDpad(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val u = unit()
+        val thickness = r * 0.65f
+        val length = r * 2.0f
+        
+        fillPaint.color = Color.argb(90, 255, 255, 255)
+        strokePaint.strokeWidth = u * 0.004f
+
+        // Horizontal bar
+        canvas.drawRect(cx - length/2, cy - thickness/2, cx + length/2, cy + thickness/2, fillPaint)
+        canvas.drawRect(cx - length/2, cy - thickness/2, cx + length/2, cy + thickness/2, strokePaint)
+        
+        // Vertical bar
+        canvas.drawRect(cx - thickness/2, cy - length/2, cx + thickness/2, cy + length/2, fillPaint)
+        canvas.drawRect(cx - thickness/2, cy - length/2, cx + thickness/2, cy + length/2, strokePaint)
+
+        // Direction indicators
+        textPaint.textSize = thickness * 0.6f
+        val textOffset = length * 0.35f
+        canvas.drawText("\u2191", cx, cy - textOffset + (textPaint.textSize * 0.3f), textPaint)
+        canvas.drawText("\u2193", cx, cy + textOffset + (textPaint.textSize * 0.3f), textPaint)
+        canvas.drawText("\u2190", cx - textOffset, cy + (textPaint.textSize * 0.3f), textPaint)
+        canvas.drawText("\u2192", cx + textOffset, cy + (textPaint.textSize * 0.3f), textPaint)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val u = unit()
 
-        // --- Left stick ---
+        // --- Left stick / DPAD ---
         val (leftCx, leftCy) = leftCenter()
         val dragR = u * stickDragRangePct
-        val knobR = u * stickRadiusPct
-        canvas.drawCircle(leftCx, leftCy, dragR, guidePaint) // faint boundary = real drag range
+        
+        if (n64Handler.useAnalogStick) {
+            val knobR = u * stickRadiusPct
+            canvas.drawCircle(leftCx, leftCy, dragR, guidePaint) // faint boundary = real drag range
 
-        // The knob moves within the ring to reflect the current touch
-        // offset (clamped so it never visually leaves the ring), instead of
-        // always sitting dead-center regardless of drag direction.
-        val knobTravel = dragR - knobR
-        val knobCx = leftCx + stickVisualDx * knobTravel
-        val knobCy = leftCy + stickVisualDy * knobTravel
-        fillPaint.color = Color.argb(90, 255, 255, 255)
-        canvas.drawCircle(knobCx, knobCy, knobR, fillPaint)
-        strokePaint.strokeWidth = u * 0.004f
-        canvas.drawCircle(knobCx, knobCy, knobR, strokePaint)
+            // The knob moves within the ring to reflect the current touch
+            // offset (clamped so it never visually leaves the ring), instead of
+            // always sitting dead-center regardless of drag direction.
+            val knobTravel = dragR - knobR
+            val knobCx = leftCx + stickVisualDx * knobTravel
+            val knobCy = leftCy + stickVisualDy * knobTravel
+            fillPaint.color = Color.argb(90, 255, 255, 255)
+            canvas.drawCircle(knobCx, knobCy, knobR, fillPaint)
+            strokePaint.strokeWidth = u * 0.004f
+            canvas.drawCircle(knobCx, knobCy, knobR, strokePaint)
+        } else {
+            drawDpad(canvas, leftCx, leftCy, dragR * 0.8f)
+            
+            // Draw a small indicator for the current DPAD press
+            if (stickVisualDx != 0f || stickVisualDy != 0f) {
+                val indicatorR = u * 0.03f
+                val indicatorDist = dragR * 0.7f
+                fillPaint.color = Color.argb(180, 255, 255, 255)
+                canvas.drawCircle(leftCx + stickVisualDx * indicatorDist, leftCy + stickVisualDy * indicatorDist, indicatorR, fillPaint)
+            }
+        }
 
         // --- Main buttons (A/B/X/Y), 40% more transparent than the original design ---
         val (rightCx, rightCy) = rightCenter()
@@ -356,13 +394,21 @@ class TouchOverlayView(
         val (cx, cy) = leftCenter()
         val maxR = unit() * stickDragRangePct
 
-        var dx = (x - cx) / maxR
-        var dy = (y - cy) / maxR
-        // Do NOT invert Y: negative-Y = up / positive-Y = down matches both
-        // the physical-controller path (N64InputHandler) and what the core expects.
-
-        dx = dx.coerceIn(-1f, 1f)
-        dy = dy.coerceIn(-1f, 1f)
+        // Use polar coordinates for smoother clamping and more natural feel
+        val rawDx = x - cx
+        val rawDy = y - cy
+        val dist = sqrt(rawDx * rawDx + rawDy * rawDy)
+        
+        val dx: Float
+        val dy: Float
+        
+        if (dist > maxR) {
+            dx = rawDx / dist
+            dy = rawDy / dist
+        } else {
+            dx = rawDx / maxR
+            dy = rawDy / maxR
+        }
 
         // Update the on-screen knob position so it visually tracks the
         // thumb, then invalidate to trigger a redraw with the new offset.
@@ -373,16 +419,22 @@ class TouchOverlayView(
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(dx, dy, retroView, port)
         } else {
+            // D-PAD quantization with a small diagonal tolerance
             val qx = when {
-                dx > 0.5f -> 1f
-                dx < -0.5f -> -1f
+                dx > 0.3f -> 1f
+                dx < -0.3f -> -1f
                 else -> 0f
             }
             val qy = when {
-                dy > 0.5f -> 1f
-                dy < -0.5f -> -1f
+                dy > 0.3f -> 1f
+                dy < -0.3f -> -1f
                 else -> 0f
             }
+            
+            // For visual feedback in D-PAD mode, we might want to snap the indicator
+            stickVisualDx = qx
+            stickVisualDy = qy
+            
             n64Handler.sendVirtualDpad(qx, qy, retroView, port)
         }
     }
