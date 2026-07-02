@@ -1,12 +1,11 @@
 plugins {
-    id('com.android.application')
-    id('kotlin-android')
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
 }
 
 android {
-    compileSdkVersion 34
-    buildToolsVersion '34.0.0'
     namespace "com.draco.ludere"
+    compileSdk 35
 
     defaultConfig {
         def configId = new XmlParser()
@@ -14,19 +13,20 @@ android {
                 .string.find { it.@name == 'config_id' }?.text()
 
         applicationId "com.trip.forward.${configId}"
-        minSdkVersion 21
-        targetSdkVersion 35
+        minSdk 21
+        targetSdk 35
         versionCode 1
-        versionName '1.0'
-        resConfigs 'en'
+        versionName "1.0"
+
+        resConfigs "en"
     }
 
     signingConfigs {
         release {
             storeFile file("${rootProject.projectDir}/ludere.jks")
-            storePassword 'ludere'
-            keyAlias 'key0'
-            keyPassword 'ludere'
+            storePassword "ludere"
+            keyAlias "key0"
+            keyPassword "ludere"
         }
     }
 
@@ -34,8 +34,12 @@ android {
         release {
             minifyEnabled true
             shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
+
+            proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+            )
         }
     }
 
@@ -43,7 +47,7 @@ android {
         abi {
             enable true
             reset()
-            include 'x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a'
+            include "x86", "x86_64", "armeabi-v7a", "arm64-v8a"
             universalApk true
         }
     }
@@ -58,90 +62,72 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = "1.8"
     }
 }
 
-/**
- * Reads values from config.xml
- */
 def configValue = { id ->
     def node = new XmlParser()
             .parse(file("${rootProject.projectDir}/app/src/main/res/values/config.xml"))
             .string.find { it.@name == id }
 
-    return node?.text()
+    node?.text()
 }
 
-/**
- * Downloads and prepares Libretro core per ABI
- */
 task prepareCore {
     doLast {
-        def abis = ['x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a']
+        def abis = ["x86", "x86_64", "armeabi-v7a", "arm64-v8a"]
 
-        for (abi in abis) {
-
-            def coreName = configValue('config_core')
+        abis.each { abi ->
+            def coreName = configValue("config_core")
 
             def jniAbiFolder = file("${rootProject.projectDir}/app/src/main/jniLibs/${abi}")
 
             if (jniAbiFolder.exists() && jniAbiFolder.list()?.length > 0) {
-                println("✓ Core already exists for $abi, skipping...")
-                continue
+                println("✓ Core already exists for ${abi}, skipping...")
+                return
             }
 
             jniAbiFolder.mkdirs()
 
-            def downloadUrl =
-                    "https://buildbot.libretro.com/nightly/android/latest/${abi}/${coreName}_libretro_android.so.zip"
+            def downloadUrl = "https://buildbot.libretro.com/nightly/android/latest/${abi}/${coreName}_libretro_android.so.zip"
+            def zipPath = "${rootProject.projectDir}/app/src/main/jniLibs/${abi}/${coreName}.zip"
 
-            def zipPath =
-                    "${rootProject.projectDir}/app/src/main/jniLibs/${abi}/${coreName}.zip"
-
-            println("Downloading core for $abi...")
+            println("Downloading core for ${abi}...")
             println(downloadUrl)
 
-            def pb = new ProcessBuilder(
+            def process = new ProcessBuilder(
                     "bash",
                     "-c",
                     "curl -fL# '${downloadUrl}' -o '${zipPath}'"
             )
+                    .directory(rootProject.projectDir)
+                    .inheritIO()
+                    .start()
 
-            pb.directory(rootProject.projectDir)
-            pb.inheritIO()
-
-            def process = pb.start()
-            int exitCode = process.waitFor()
-
-            if (exitCode != 0) {
-                println("⚠️ Core not available for $abi - skipping")
+            if (process.waitFor() != 0) {
+                println("⚠️ Core not available for ${abi} - skipping")
                 jniAbiFolder.deleteDir()
-                continue
+                return
             }
 
             def zipFile = file(zipPath)
 
             if (zipFile.exists()) {
-                println("✓ Downloaded core for $abi, extracting...")
+                println("✓ Downloaded core for ${abi}, extracting...")
 
                 copy {
                     from zipTree(zipFile)
                     into jniAbiFolder
 
-                    rename { String fileName ->
-                        if (fileName.endsWith(".so")) {
-                            return "libcore.so"
-                        }
-                        return fileName
+                    rename { filename ->
+                        filename.endsWith(".so") ? "libcore.so" : filename
                     }
                 }
 
                 delete zipFile
 
-                println("✓ Extracted core for $abi")
-            } else {
-                println("⚠️ Download failed verification for $abi")
+                println("✓ Extracted core for ${abi}")
             }
         }
     }
@@ -150,21 +136,23 @@ task prepareCore {
 preBuild.dependsOn prepareCore
 
 dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation fileTree(dir: "libs", include: ["*.jar"])
 
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.1-native-mt'
 
-    implementation 'androidx.core:core-ktx:1.7.0'
-    implementation 'androidx.appcompat:appcompat:1.4.0'
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
 
-    implementation 'androidx.activity:activity-ktx:1.4.0'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.0'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.4.0'
-    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.4.0'
+    implementation "androidx.core:core-ktx:1.13.1"
+    implementation "androidx.appcompat:appcompat:1.7.0"
 
-    implementation 'com.github.swordfish90:radialgamepad:0.6.0'
-    implementation 'com.github.swordfish90:libretrodroid:0.7.0'
+    implementation "androidx.activity:activity-ktx:1.9.1"
 
-    implementation 'io.reactivex.rxjava2:rxandroid:2.1.1'
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.3"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.8.3"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3"
+
+    implementation "com.github.swordfish90:radialgamepad:0.6.0"
+    implementation "com.github.swordfish90:libretrodroid:0.7.0"
+
+    implementation "io.reactivex.rxjava2:rxandroid:2.1.1"
 }
