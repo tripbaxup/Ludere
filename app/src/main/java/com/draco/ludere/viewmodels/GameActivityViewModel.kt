@@ -9,6 +9,7 @@ import android.os.Build
 import android.text.InputType
 import android.view.*
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
