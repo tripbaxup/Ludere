@@ -246,9 +246,10 @@ class TouchOverlayView(
         val (rightCx, rightCy) = rightCenter()
         val btnR = u * buttonRadiusPct
         val sp = u * buttonSpacingPct
-        val red = Color.argb(96, 200, 0, 0)
-        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, red, "B")
-        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, red, "A")
+        val green = Color.argb(96, 0, 170, 0)
+        val purple = Color.argb(96, 140, 0, 200)
+        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, green, "A")
+        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, purple, "B")
 
         // --- C-button cluster (top-right corner, swapped with Z) ---
         val cGeo = cGeometry()
@@ -281,8 +282,8 @@ class TouchOverlayView(
 
         fun hit(cx: Float, cy: Float) = hypot(x - cx, y - cy) <= btnR
 
-        if (hit(rightCx + sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_B
-        if (hit(rightCx - sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_A
+        if (hit(rightCx + sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_A
+        if (hit(rightCx - sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_B
 
         val (startCx, startCy) = startCenter()
         if (hypot(x - startCx, y - startCy) <= u * startRadiusPct) return KeyEvent.KEYCODE_BUTTON_START
