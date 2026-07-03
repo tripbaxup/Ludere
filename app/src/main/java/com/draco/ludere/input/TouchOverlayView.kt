@@ -20,12 +20,12 @@ import kotlin.math.*
  * the middle of the screen on tall/portrait aspect ratios).
  *
  * - Bottom-left: analog stick (or dpad if n64Handler.useAnalogStick == false)
- * - Bottom-right: A/B/X/Y face buttons
- * - Directly above the face buttons: C-Up/Down/Left/Right (mapped to the
- *   right analog stick, which is how N64 cores read the C buttons). In
- *   portrait, where the emulator letterboxes the game vertically, this
- *   cluster is shrunk/clamped so it never draws on top of the game image.
- * - Top-right: Z shoulder button (mapped to L2, the standard N64 Z mapping)
+ * - Bottom-right: A/B face buttons (X and Y have been removed, and A/B
+ *   are swapped from their original screen positions)
+ * - Center, in the space X/Y used to occupy: Z shoulder button (mapped to
+ *   L2, the standard N64 Z mapping)
+ * - Top-right: C-Up/Down/Left/Right (mapped to the right analog stick,
+ *   which is how N64 cores read the C buttons).
  * - Top-center: Start
  */
 class TouchOverlayView(
@@ -74,19 +74,18 @@ class TouchOverlayView(
     // the remaining range back to 0..1 avoids a "dead spot then jump" feel.
     private val stickDeadzonePct = 0.08f
 
-    // Main face buttons (A/B/X/Y)
+    // Main face buttons (A/B only -- X/Y removed)
     private val rightInsetPct = 0.30f
     private val rightBottomInsetPct = 0.30f
     private val buttonRadiusPct = 0.085f
     private val buttonSpacingPct = 0.115f
 
-    // C-button cluster (ideal / landscape sizing -- see cGeometry())
+    // C-button cluster sizing (top-right corner -- see cGeometry())
     private val cRadiusPct = 0.058f
     private val cSpacingPct = 0.10f
-    private val cAboveGapPct = 0.03f       // gap between the C-cluster and whatever is below/above it
-    private val cMinScalePortrait = 0.55f  // never shrink the C-cluster below 55% of its ideal size
 
-    // Z (now top-right shoulder button)
+    // Top-right corner inset, used by the C-button cluster now (kept the
+    // "z" name since this used to be Z's inset before the swap)
     private val zInsetPct = 0.15f
     private val zRadiusPct = 0.09f
 
@@ -142,47 +141,26 @@ class TouchOverlayView(
 
     private data class CGeometry(val cx: Float, val cy: Float, val radius: Float, val spacing: Float)
 
-    /**
-     * Computes the center, radius, and spacing of the C-button diamond. The
-     * cluster always sits directly above the main A/B/X/Y cluster, centered
-     * on the same X. In portrait, the emulator letterboxes a standard N64
-     * 4:3 image to the view's full width; if the gap between the game's
-     * bottom edge and the main buttons isn't tall enough for the cluster at
-     * its normal size, it's shrunk (down to cMinScalePortrait) to fit --
-     * obscuring the game view is worse than a smaller cluster. If you use a
-     * core/output with a different aspect ratio, adjust the 4f/3f below.
-     */
+    // C-buttons live where Z used to be (top-right corner); Z now lives in
+    // the space X/Y used to occupy (see zCenter() below).
+
+    /** Top-right corner anchor -- this is where Z used to live; the
+     *  C-button diamond is drawn here now. */
     private fun cGeometry(): CGeometry {
         val u = unit()
-        val (rightCx, rightCy) = rightCenter()
-        val btnR = u * buttonRadiusPct
-        val sp = u * buttonSpacingPct
-        val mainClusterTopY = rightCy - sp - btnR
-        val gap = u * cAboveGapPct
-
-        var cR = u * cRadiusPct
-        var cSp = u * cSpacingPct
-
-        if (isPortrait()) {
-            val gameHeight = width * (3f / 4f)
-            val gameBottomY = (height - gameHeight) / 2f + gameHeight
-
-            val available = mainClusterTopY - gameBottomY - 2f * gap
-            val ideal = 2f * (cSp + cR)
-            if (available < ideal) {
-                val scale = (available / ideal).coerceIn(cMinScalePortrait, 1f)
-                cR *= scale
-                cSp *= scale
-            }
-        }
-
-        val cy = mainClusterTopY - gap - (cSp + cR)
-        return CGeometry(rightCx, cy, cR, cSp)
+        val cx = width - u * zInsetPct
+        val cy = u * zInsetPct
+        return CGeometry(cx, cy, u * cRadiusPct, u * cSpacingPct)
     }
 
+    /** Center of the space X and Y used to occupy (top row of the old
+     *  A/B/X/Y grid, centered between the two removed buttons) -- Z is
+     *  drawn here now. */
     private fun zCenter(): Pair<Float, Float> {
         val u = unit()
-        return Pair(width - u * zInsetPct, u * zInsetPct)
+        val (rightCx, rightCy) = rightCenter()
+        val sp = u * buttonSpacingPct
+        return Pair(rightCx, rightCy - sp)
     }
 
     private fun startCenter(): Pair<Float, Float> {
@@ -264,12 +242,10 @@ class TouchOverlayView(
         val btnR = u * buttonRadiusPct
         val sp = u * buttonSpacingPct
         val red = Color.argb(96, 200, 0, 0)
-        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, red, "A")
-        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, red, "B")
-        drawLabeledCircle(canvas, rightCx + sp, rightCy - sp, btnR, red, "X")
-        drawLabeledCircle(canvas, rightCx - sp, rightCy - sp, btnR, red, "Y")
+        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, red, "B")
+        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, red, "A")
 
-        // --- C-button cluster (directly above A/B/X/Y) ---
+        // --- C-button cluster (top-right corner, swapped with Z) ---
         val cGeo = cGeometry()
         val amber = Color.argb(150, 210, 170, 0)
         drawLabeledCircle(canvas, cGeo.cx, cGeo.cy - cGeo.spacing, cGeo.radius, amber, "\u2191")
@@ -277,7 +253,7 @@ class TouchOverlayView(
         drawLabeledCircle(canvas, cGeo.cx - cGeo.spacing, cGeo.cy, cGeo.radius, amber, "\u2190")
         drawLabeledCircle(canvas, cGeo.cx + cGeo.spacing, cGeo.cy, cGeo.radius, amber, "\u2192")
 
-        // --- Z (top-right shoulder) ---
+        // --- Z (directly above A/B/X/Y, swapped with the C-cluster) ---
         val (zCx, zCy) = zCenter()
         drawLabeledCircle(canvas, zCx, zCy, u * zRadiusPct, Color.argb(150, 40, 40, 50), "Z")
 
@@ -300,10 +276,8 @@ class TouchOverlayView(
 
         fun hit(cx: Float, cy: Float) = hypot(x - cx, y - cy) <= btnR
 
-        if (hit(rightCx + sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_A
-        if (hit(rightCx - sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_B
-        if (hit(rightCx + sp, rightCy - sp)) return KeyEvent.KEYCODE_BUTTON_X
-        if (hit(rightCx - sp, rightCy - sp)) return KeyEvent.KEYCODE_BUTTON_Y
+        if (hit(rightCx + sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_B
+        if (hit(rightCx - sp, rightCy + sp)) return KeyEvent.KEYCODE_BUTTON_A
 
         val (startCx, startCy) = startCenter()
         if (hypot(x - startCx, y - startCy) <= u * startRadiusPct) return KeyEvent.KEYCODE_BUTTON_START
