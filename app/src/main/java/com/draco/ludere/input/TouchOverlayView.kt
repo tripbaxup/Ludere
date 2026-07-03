@@ -24,8 +24,8 @@ import kotlin.math.*
  *   are swapped from their original screen positions)
  * - Center, in the space X/Y used to occupy: Z shoulder button (mapped to
  *   L2, the standard N64 Z mapping)
- * - Top-right: C-Up/Down/Left/Right (mapped to the right analog stick,
- *   which is how N64 cores read the C buttons).
+ * - Directly above Z: C-Up/Down/Left/Right (mapped to the right analog
+ *   stick, which is how N64 cores read the C buttons).
  * - Top-center: Start
  */
 class TouchOverlayView(
@@ -80,13 +80,10 @@ class TouchOverlayView(
     private val buttonRadiusPct = 0.085f
     private val buttonSpacingPct = 0.115f
 
-    // C-button cluster sizing (top-right corner -- see cGeometry())
+    // C-button cluster sizing (drawn above Z -- see cGeometry())
     private val cRadiusPct = 0.058f
     private val cSpacingPct = 0.10f
 
-    // Top-right corner inset, used by the C-button cluster now (kept the
-    // "z" name since this used to be Z's inset before the swap)
-    private val zInsetPct = 0.15f
     private val zRadiusPct = 0.09f
 
     // Start (top-center)
@@ -141,16 +138,24 @@ class TouchOverlayView(
 
     private data class CGeometry(val cx: Float, val cy: Float, val radius: Float, val spacing: Float)
 
-    // C-buttons live where Z used to be (top-right corner); Z now lives in
-    // the space X/Y used to occupy (see zCenter() below).
+    // C-buttons now sit directly above Z (see cGeometry() below); Z lives
+    // in the space X/Y used to occupy (see zCenter() below).
 
-    /** Top-right corner anchor -- this is where Z used to live; the
-     *  C-button diamond is drawn here now. */
+    // Small gap between the C-cluster and the Z button it now sits above
+    private val cAboveZGapPct = 0.03f
+
+    /** Directly above Z, horizontally centered on it -- the C-button
+     *  diamond is drawn here now. */
     private fun cGeometry(): CGeometry {
         val u = unit()
-        val cx = width - u * zInsetPct
-        val cy = u * zInsetPct
-        return CGeometry(cx, cy, u * cRadiusPct, u * cSpacingPct)
+        val (zCx, zCy) = zCenter()
+        val zR = u * zRadiusPct
+        val gap = u * cAboveZGapPct
+        val cR = u * cRadiusPct
+        val cSp = u * cSpacingPct
+
+        val cy = zCy - zR - gap - (cSp + cR)
+        return CGeometry(zCx, cy, cR, cSp)
     }
 
     /** Center of the space X and Y used to occupy (top row of the old
