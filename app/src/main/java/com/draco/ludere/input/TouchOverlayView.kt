@@ -134,6 +134,33 @@ class TouchOverlayView(
 
     private data class CGeometry(val cx: Float, val cy: Float, val radius: Float, val spacing: Float)
 
+    private data class FaceButton(
+        val cx: Float,
+        val cy: Float,
+        val radius: Float,
+        val color: Int,
+        val label: String,
+        val keyCode: Int,
+    )
+
+    // Single source of truth for the A/B face buttons. Both onDraw (what
+    // gets drawn) and handlePointerDown (what gets pressed) read from this
+    // one function, so the label, color, position, and key code for each
+    // button can never drift out of sync with each other again.
+    private fun faceButtons(): List<FaceButton> {
+        val u = unit()
+        val (rightCx, rightCy) = rightCenter()
+        val r = u * buttonRadiusPct
+        val sp = u * buttonSpacingPct
+        val green = Color.argb(96, 0, 170, 0)
+        val purple = Color.argb(96, 140, 0, 200)
+
+        return listOf(
+            FaceButton(rightCx + sp, rightCy + sp, r, green, "B", KeyEvent.KEYCODE_BUTTON_B),
+            FaceButton(rightCx - sp, rightCy + sp, r, purple, "A", KeyEvent.KEYCODE_BUTTON_A),
+        )
+    }
+
     private val cAboveZGapPct = 0.03f
 
     private fun zCenter(): Pair<Float, Float> {
@@ -235,14 +262,9 @@ class TouchOverlayView(
             drawDpad(canvas, leftCx, leftCy)
         }
 
-        val (rightCx, rightCy) = rightCenter()
-        val btnR = u * buttonRadiusPct
-        val sp = u * buttonSpacingPct
-        val green = Color.argb(96, 0, 170, 0)
-        val purple = Color.argb(96, 140, 0, 200)
-
-        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, green, "B")
-        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, purple, "A")
+        for (btn in faceButtons()) {
+            drawLabeledCircle(canvas, btn.cx, btn.cy, btn.radius, btn.color, btn.label)
+        }
 
         val cGeo = cGeometry()
         val amber = Color.argb(150, 210, 170, 0)
@@ -369,16 +391,11 @@ class TouchOverlayView(
         }
 
         // 2. A / B face buttons
-        val (rightCx, rightCy) = rightCenter()
-        val btnR = u * buttonRadiusPct * hitPadding
-        val sp = u * buttonSpacingPct
-        if (isInside(x, y, rightCx + sp, rightCy + sp, btnR)) {
-            pressButton(id, KeyEvent.KEYCODE_BUTTON_B)
-            return
-        }
-        if (isInside(x, y, rightCx - sp, rightCy + sp, btnR)) {
-            pressButton(id, KeyEvent.KEYCODE_BUTTON_A)
-            return
+        for (btn in faceButtons()) {
+            if (isInside(x, y, btn.cx, btn.cy, btn.radius * hitPadding)) {
+                pressButton(id, btn.keyCode)
+                return
+            }
         }
 
         // 3. Z shoulder button
