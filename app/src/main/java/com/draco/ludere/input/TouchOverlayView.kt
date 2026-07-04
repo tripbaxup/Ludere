@@ -19,17 +19,19 @@ import kotlin.math.*
  * of using raw percentages of full height (which pushed clusters toward
  * the middle of the screen on tall/portrait aspect ratios).
  *
- * - Bottom-left: analog stick (or dpad if n64Handler.useAnalogStick == false)
+ * - Bottom-left: analog stick, drawn as a draggable knob (or a D-pad, drawn
+ *   as four directional buttons with the active direction highlighted, if
+ *   n64Handler.useAnalogStick == false)
  * - Bottom-right: A/B face buttons (X and Y have been removed)
  * - Center, in the space X/Y used to occupy: Z shoulder button (mapped to
  *   L2, the standard N64 Z mapping)
  * - Directly above Z: C-Up/Down/Left/Right (mapped to the right analog
  *   stick, which is how N64 cores read the C buttons).
- * - Above the analog stick, level with the C buttons: R shoulder button
- *   (mapped to R1).
+ * - Tucked into the top-right notch of the C-pad diamond, between C-Up and
+ *   C-Right: R shoulder button (mapped to R1).
+ * - Tucked into the top-left notch of the C-pad diamond, between C-Up and
+ *   C-Left, mirroring R: L shoulder button (mapped to L1).
  * - Top-center: Start
- * - L shoulder button (mapped to L1) is fully wired up and functional, but
- *   intentionally NOT drawn on screen (no visible hit target for it yet).
  *
  * Handles all touch input directly (multi-touch aware): the left pointer
  * that lands nearest the stick drives the analog stick/dpad, and every
@@ -79,10 +81,15 @@ class TouchOverlayView(
     private val startTopInsetPct = 0.14f
     private val startRadiusPct = 0.075f
 
-    // R is drawn; L shares the same hit-test radius but is never drawn.
-    private val rRadiusPct = 0.085f
-    private val lRadiusPct = 0.085f
-    private val lAboveCGapPct = 0.04f
+    // R and L are tucked into the corner notches of the C-pad diamond (see
+    // cGeometry/rCenter/lCenter), so they're sized a bit smaller than the
+    // other action buttons to keep overlap with the C buttons modest.
+    private val rRadiusPct = 0.062f
+    private val lRadiusPct = 0.062f
+
+    // Below this displacement (as a fraction of stickDragRangePct), an axis
+    // reads as centered/neutral for digital D-pad output.
+    private val digitalThreshold = 0.5f
 
     // How much bigger than the drawn radius a button's touch target is,
     // so small/fast taps are easier to land.
@@ -153,23 +160,18 @@ class TouchOverlayView(
         return Pair(width * 0.5f, u * startTopInsetPct)
     }
 
-    // R sits directly above the analog stick, at the same height (same Y)
-    // as the C-buttons cluster - i.e. horizontally level with the C buttons.
+    // R sits in the top-right notch of the C-pad diamond - diagonally
+    // between the C-Up and C-Right buttons, equidistant from both.
     private fun rCenter(): Pair<Float, Float> {
-        val (leftCx, _) = leftCenter()
         val cGeo = cGeometry()
-        return Pair(leftCx, cGeo.cy)
+        return Pair(cGeo.cx + cGeo.spacing, cGeo.cy - cGeo.spacing)
     }
 
-    // L is fully functional but is never drawn. It's tucked just above the
-    // C-Up hit region so it doesn't overlap any visible control.
+    // L mirrors R on the opposite side: the top-left notch of the C-pad
+    // diamond, diagonally between the C-Up and C-Left buttons.
     private fun lCenter(): Pair<Float, Float> {
-        val u = unit()
         val cGeo = cGeometry()
-        val gap = u * lAboveCGapPct
-        val lR = u * lRadiusPct
-        val cy = cGeo.cy - cGeo.spacing - cGeo.radius - gap - lR
-        return Pair(cGeo.cx, cy)
+        return Pair(cGeo.cx - cGeo.spacing, cGeo.cy - cGeo.spacing)
     }
 
     private fun drawLabeledCircle(canvas: Canvas, cx: Float, cy: Float, r: Float, color: Int, label: String) {
@@ -180,6 +182,35 @@ class TouchOverlayView(
         textPaint.textSize = r * 0.85f
         val textY = cy - (textPaint.descent() + textPaint.ascent()) / 2f
         canvas.drawText(label, cx, textY, textPaint)
+    }
+
+    private fun digitalAxis(v: Float): Int = when {
+        v > digitalThreshold -> 1
+        v < -digitalThreshold -> -1
+        else -> 0
+    }
+
+    // Renders the D-pad as four directional buttons in a diamond (same
+    // visual language as the C-pad), with the currently-pressed direction(s)
+    // lit up so there's clear feedback while dragging.
+    private fun drawDpad(canvas: Canvas, cx: Float, cy: Float) {
+        val u = unit()
+        val dragR = u * stickDragRangePct
+        val armR = u * stickRadiusPct * 1.2f
+        val armSpacing = u * stickRadiusPct * 1.7f
+
+        canvas.drawCircle(cx, cy, dragR, guidePaint)
+
+        val digitalX = digitalAxis(stickVisualDx)
+        val digitalY = digitalAxis(stickVisualDy)
+
+        val idleColor = Color.argb(70, 255, 255, 255)
+        val activeColor = Color.argb(170, 255, 255, 255)
+
+        drawLabeledCircle(canvas, cx, cy - armSpacing, armR, if (digitalY < 0) activeColor else idleColor, "\u2191")
+        drawLabeledCircle(canvas, cx, cy + armSpacing, armR, if (digitalY > 0) activeColor else idleColor, "\u2193")
+        drawLabeledCircle(canvas, cx - armSpacing, cy, armR, if (digitalX < 0) activeColor else idleColor, "\u2190")
+        drawLabeledCircle(canvas, cx + armSpacing, cy, armR, if (digitalX > 0) activeColor else idleColor, "\u2192")
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -200,6 +231,8 @@ class TouchOverlayView(
             canvas.drawCircle(knobCx, knobCy, knobR, fillPaint)
             strokePaint.strokeWidth = u * 0.004f
             canvas.drawCircle(knobCx, knobCy, knobR, strokePaint)
+        } else {
+            drawDpad(canvas, leftCx, leftCy)
         }
 
         val (rightCx, rightCy) = rightCenter()
@@ -208,9 +241,8 @@ class TouchOverlayView(
         val green = Color.argb(96, 0, 170, 0)
         val purple = Color.argb(96, 140, 0, 200)
 
-        // Swapped: the position that used to say "B" now says "A", and vice versa.
-        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, green, "A")
-        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, purple, "B")
+        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, green, "B")
+        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, purple, "A")
 
         val cGeo = cGeometry()
         val amber = Color.argb(150, 210, 170, 0)
@@ -228,8 +260,8 @@ class TouchOverlayView(
         val (rCx, rCy) = rCenter()
         drawLabeledCircle(canvas, rCx, rCy, u * rRadiusPct, Color.argb(150, 90, 70, 130), "R")
 
-        // L is intentionally not drawn - it has no visible circle, but the
-        // hit region returned by lCenter() is still fully wired up below.
+        val (lCx, lCy) = lCenter()
+        drawLabeledCircle(canvas, lCx, lCy, u * lRadiusPct, Color.argb(150, 90, 70, 130), "L")
     }
 
     private fun distSq(x1: Float, y1: Float, x2: Float, y2: Float): Float {
@@ -301,17 +333,12 @@ class TouchOverlayView(
         if (n64Handler.useAnalogStick) {
             n64Handler.sendVirtualAnalogLeft(stickVisualDx, stickVisualDy, retroView, port)
         } else {
-            val digitalX = when {
-                stickVisualDx > 0.5f -> 1f
-                stickVisualDx < -0.5f -> -1f
-                else -> 0f
-            }
-            val digitalY = when {
-                stickVisualDy > 0.5f -> 1f
-                stickVisualDy < -0.5f -> -1f
-                else -> 0f
-            }
-            n64Handler.sendVirtualDpad(digitalX, digitalY, retroView, port)
+            n64Handler.sendVirtualDpad(
+                digitalAxis(stickVisualDx).toFloat(),
+                digitalAxis(stickVisualDy).toFloat(),
+                retroView,
+                port,
+            )
         }
     }
 
@@ -346,11 +373,11 @@ class TouchOverlayView(
         val btnR = u * buttonRadiusPct * hitPadding
         val sp = u * buttonSpacingPct
         if (isInside(x, y, rightCx + sp, rightCy + sp, btnR)) {
-            pressButton(id, KeyEvent.KEYCODE_BUTTON_A)
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_B)
             return
         }
         if (isInside(x, y, rightCx - sp, rightCy + sp, btnR)) {
-            pressButton(id, KeyEvent.KEYCODE_BUTTON_B)
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_A)
             return
         }
 
@@ -368,24 +395,26 @@ class TouchOverlayView(
             return
         }
 
-        // 5. R shoulder button (drawn, above the stick)
+        // 5. C-pad. Checked before R/L since R and L are tucked tightly into
+        // the diamond's corner notches and slightly overlap it - in that
+        // sliver of overlap, the C-pad should win.
+        cDirectionAt(x, y)?.let { dir ->
+            cButtonPointers[id] = dir
+            updateCButtonState()
+            return
+        }
+
+        // 6. R shoulder button (top-right notch of the C-pad diamond)
         val (rCx, rCy) = rCenter()
         if (isInside(x, y, rCx, rCy, u * rRadiusPct * hitPadding)) {
             pressButton(id, KeyEvent.KEYCODE_BUTTON_R1)
             return
         }
 
-        // 6. L shoulder button (functional, but never drawn)
+        // 7. L shoulder button (top-left notch of the C-pad diamond)
         val (lCx, lCy) = lCenter()
         if (isInside(x, y, lCx, lCy, u * lRadiusPct * hitPadding)) {
             pressButton(id, KeyEvent.KEYCODE_BUTTON_L1)
-            return
-        }
-
-        // 7. C-pad
-        cDirectionAt(x, y)?.let { dir ->
-            cButtonPointers[id] = dir
-            updateCButtonState()
         }
     }
 
