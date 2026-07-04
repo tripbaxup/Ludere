@@ -147,6 +147,18 @@ class TouchOverlayView(
     // gets drawn) and handlePointerDown (what gets pressed) read from this
     // one function, so the label, color, position, and key code for each
     // button can never drift out of sync with each other again.
+    //
+    // IMPORTANT: the key codes below are intentionally "crossed" relative to
+    // their on-screen labels. Android's KEYCODE_BUTTON_A/B follow the
+    // Xbox-style convention (A = primary/south button), but the core reads
+    // input through libretro's RetroPad abstraction, which follows the
+    // SNES/N64-style convention instead (B is the primary button - see
+    // RETRO_DEVICE_ID_JOYPAD_B being slot 0 vs. _A being slot 8). So sending
+    // Android's KEYCODE_BUTTON_A actually lands on the core's B button, and
+    // vice versa. This was confirmed in-game: the on-screen "B" circle was
+    // triggering the N64's jump/A action before this fix. If a future core
+    // or library update changes this behavior, flip these two key codes
+    // back and this comment can go away.
     private fun faceButtons(): List<FaceButton> {
         val u = unit()
         val (rightCx, rightCy) = rightCenter()
@@ -156,8 +168,8 @@ class TouchOverlayView(
         val purple = Color.argb(96, 140, 0, 200)
 
         return listOf(
-            FaceButton(rightCx + sp, rightCy + sp, r, green, "B", KeyEvent.KEYCODE_BUTTON_B),
-            FaceButton(rightCx - sp, rightCy + sp, r, purple, "A", KeyEvent.KEYCODE_BUTTON_A),
+            FaceButton(rightCx + sp, rightCy + sp, r, green, "B", KeyEvent.KEYCODE_BUTTON_A),
+            FaceButton(rightCx - sp, rightCy + sp, r, purple, "A", KeyEvent.KEYCODE_BUTTON_B),
         )
     }
 
