@@ -20,13 +20,21 @@ import kotlin.math.*
  * the middle of the screen on tall/portrait aspect ratios).
  *
  * - Bottom-left: analog stick (or dpad if n64Handler.useAnalogStick == false)
- * - Bottom-right: A/B face buttons (X and Y have been removed, and A/B
- *   are swapped from their original screen positions)
+ * - Bottom-right: A/B face buttons (X and Y have been removed)
  * - Center, in the space X/Y used to occupy: Z shoulder button (mapped to
  *   L2, the standard N64 Z mapping)
  * - Directly above Z: C-Up/Down/Left/Right (mapped to the right analog
  *   stick, which is how N64 cores read the C buttons).
+ * - Above the analog stick, level with the C buttons: R shoulder button
+ *   (mapped to R1).
  * - Top-center: Start
+ * - L shoulder button (mapped to L1) is fully wired up and functional, but
+ *   intentionally NOT drawn on screen (no visible hit target for it yet).
+ *
+ * Handles all touch input directly (multi-touch aware): the left pointer
+ * that lands nearest the stick drives the analog stick/dpad, and every
+ * other pointer is tested against the face buttons, shoulder buttons,
+ * start, and C-pad hit regions.
  */
 class TouchOverlayView(
     context: Context,
@@ -71,10 +79,24 @@ class TouchOverlayView(
     private val startTopInsetPct = 0.14f
     private val startRadiusPct = 0.075f
 
+    // R is drawn; L shares the same hit-test radius but is never drawn.
+    private val rRadiusPct = 0.085f
+    private val lRadiusPct = 0.085f
+    private val lAboveCGapPct = 0.04f
+
+    // How much bigger than the drawn radius a button's touch target is,
+    // so small/fast taps are easier to land.
+    private val hitPadding = 1.15f
+
     private var leftPointerId: Int = -1
     private var stickVisualDx = 0f
     private var stickVisualDy = 0f
-    private var buttonPointers = mutableMapOf<Int, Int>()
+
+    // pointerId -> keyCode, for the single-shot circular buttons (A, B, Z, START, R, L)
+    private val buttonPointers = mutableMapOf<Int, Int>()
+
+    // pointerId -> C-direction bitmask, for the C-pad
+    private val cButtonPointers = mutableMapOf<Int, Int>()
 
     private companion object {
         const val C_UP = 1
@@ -82,8 +104,6 @@ class TouchOverlayView(
         const val C_LEFT = 4
         const val C_RIGHT = 8
     }
-
-    private var cButtonPointers = mutableMapOf<Int, Int>()
 
     init {
         isClickable = true
@@ -133,6 +153,25 @@ class TouchOverlayView(
         return Pair(width * 0.5f, u * startTopInsetPct)
     }
 
+    // R sits directly above the analog stick, at the same height (same Y)
+    // as the C-buttons cluster - i.e. horizontally level with the C buttons.
+    private fun rCenter(): Pair<Float, Float> {
+        val (leftCx, _) = leftCenter()
+        val cGeo = cGeometry()
+        return Pair(leftCx, cGeo.cy)
+    }
+
+    // L is fully functional but is never drawn. It's tucked just above the
+    // C-Up hit region so it doesn't overlap any visible control.
+    private fun lCenter(): Pair<Float, Float> {
+        val u = unit()
+        val cGeo = cGeometry()
+        val gap = u * lAboveCGapPct
+        val lR = u * lRadiusPct
+        val cy = cGeo.cy - cGeo.spacing - cGeo.radius - gap - lR
+        return Pair(cGeo.cx, cy)
+    }
+
     private fun drawLabeledCircle(canvas: Canvas, cx: Float, cy: Float, r: Float, color: Int, label: String) {
         fillPaint.color = color
         canvas.drawCircle(cx, cy, r, fillPaint)
@@ -169,9 +208,9 @@ class TouchOverlayView(
         val green = Color.argb(96, 0, 170, 0)
         val purple = Color.argb(96, 140, 0, 200)
 
-        // ✅ ONLY CHANGE: swapped labels
-        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, green, "B")
-        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, purple, "A")
+        // Swapped: the position that used to say "B" now says "A", and vice versa.
+        drawLabeledCircle(canvas, rightCx + sp, rightCy + sp, btnR, green, "A")
+        drawLabeledCircle(canvas, rightCx - sp, rightCy + sp, btnR, purple, "B")
 
         val cGeo = cGeometry()
         val amber = Color.argb(150, 210, 170, 0)
@@ -185,5 +224,244 @@ class TouchOverlayView(
 
         val (startCx, startCy) = startCenter()
         drawLabeledCircle(canvas, startCx, startCy, u * startRadiusPct, Color.argb(130, 0, 110, 190), "+")
+
+        val (rCx, rCy) = rCenter()
+        drawLabeledCircle(canvas, rCx, rCy, u * rRadiusPct, Color.argb(150, 90, 70, 130), "R")
+
+        // L is intentionally not drawn - it has no visible circle, but the
+        // hit region returned by lCenter() is still fully wired up below.
+    }
+
+    private fun distSq(x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        val dx = x1 - x2
+        val dy = y1 - y2
+        return dx * dx + dy * dy
+    }
+
+    private fun isInside(x: Float, y: Float, cx: Float, cy: Float, r: Float): Boolean =
+        distSq(x, y, cx, cy) <= r * r
+
+    private fun cDirectionAt(x: Float, y: Float): Int? {
+        val cGeo = cGeometry()
+        val hitR = cGeo.radius * 1.3f
+        val candidates = listOf(
+            C_UP to Pair(cGeo.cx, cGeo.cy - cGeo.spacing),
+            C_DOWN to Pair(cGeo.cx, cGeo.cy + cGeo.spacing),
+            C_LEFT to Pair(cGeo.cx - cGeo.spacing, cGeo.cy),
+            C_RIGHT to Pair(cGeo.cx + cGeo.spacing, cGeo.cy),
+        )
+        for ((dir, pos) in candidates) {
+            if (isInside(x, y, pos.first, pos.second, hitR)) return dir
+        }
+        return null
+    }
+
+    private fun updateCButtonState() {
+        var mask = 0
+        for (v in cButtonPointers.values) mask = mask or v
+
+        val x = when {
+            mask and C_RIGHT != 0 && mask and C_LEFT != 0 -> 0f
+            mask and C_RIGHT != 0 -> 1f
+            mask and C_LEFT != 0 -> -1f
+            else -> 0f
+        }
+        val y = when {
+            mask and C_DOWN != 0 && mask and C_UP != 0 -> 0f
+            mask and C_DOWN != 0 -> 1f
+            mask and C_UP != 0 -> -1f
+            else -> 0f
+        }
+
+        retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, x, y, port)
+    }
+
+    private fun pressButton(pointerId: Int, keyCode: Int) {
+        buttonPointers[pointerId] = keyCode
+        retroView.sendKeyEvent(KeyEvent.ACTION_DOWN, keyCode, port)
+    }
+
+    private fun updateStick(x: Float, y: Float) {
+        val (leftCx, leftCy) = leftCenter()
+        val u = unit()
+        val dragR = u * stickDragRangePct
+
+        var dx = x - leftCx
+        var dy = y - leftCy
+        val dist = hypot(dx, dy)
+        if (dist > dragR && dist > 0f) {
+            val scale = dragR / dist
+            dx *= scale
+            dy *= scale
+        }
+
+        stickVisualDx = dx / dragR
+        stickVisualDy = dy / dragR
+
+        if (n64Handler.useAnalogStick) {
+            n64Handler.sendVirtualAnalogLeft(stickVisualDx, stickVisualDy, retroView, port)
+        } else {
+            val digitalX = when {
+                stickVisualDx > 0.5f -> 1f
+                stickVisualDx < -0.5f -> -1f
+                else -> 0f
+            }
+            val digitalY = when {
+                stickVisualDy > 0.5f -> 1f
+                stickVisualDy < -0.5f -> -1f
+                else -> 0f
+            }
+            n64Handler.sendVirtualDpad(digitalX, digitalY, retroView, port)
+        }
+    }
+
+    private fun releaseStick() {
+        leftPointerId = -1
+        stickVisualDx = 0f
+        stickVisualDy = 0f
+        if (n64Handler.useAnalogStick) {
+            n64Handler.sendVirtualAnalogLeft(0f, 0f, retroView, port)
+        } else {
+            n64Handler.sendVirtualDpad(0f, 0f, retroView, port)
+        }
+    }
+
+    private fun handlePointerDown(event: MotionEvent, idx: Int) {
+        val id = event.getPointerId(idx)
+        val x = event.getX(idx)
+        val y = event.getY(idx)
+        val u = unit()
+
+        // 1. Analog stick / dpad (only one pointer may drive it at a time)
+        val (leftCx, leftCy) = leftCenter()
+        val stickGrabR = u * stickDragRangePct * 1.3f
+        if (leftPointerId == -1 && isInside(x, y, leftCx, leftCy, stickGrabR)) {
+            leftPointerId = id
+            updateStick(x, y)
+            return
+        }
+
+        // 2. A / B face buttons
+        val (rightCx, rightCy) = rightCenter()
+        val btnR = u * buttonRadiusPct * hitPadding
+        val sp = u * buttonSpacingPct
+        if (isInside(x, y, rightCx + sp, rightCy + sp, btnR)) {
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_A)
+            return
+        }
+        if (isInside(x, y, rightCx - sp, rightCy + sp, btnR)) {
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_B)
+            return
+        }
+
+        // 3. Z shoulder button
+        val (zCx, zCy) = zCenter()
+        if (isInside(x, y, zCx, zCy, u * zRadiusPct * hitPadding)) {
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_L2)
+            return
+        }
+
+        // 4. Start
+        val (startCx, startCy) = startCenter()
+        if (isInside(x, y, startCx, startCy, u * startRadiusPct * hitPadding)) {
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_START)
+            return
+        }
+
+        // 5. R shoulder button (drawn, above the stick)
+        val (rCx, rCy) = rCenter()
+        if (isInside(x, y, rCx, rCy, u * rRadiusPct * hitPadding)) {
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_R1)
+            return
+        }
+
+        // 6. L shoulder button (functional, but never drawn)
+        val (lCx, lCy) = lCenter()
+        if (isInside(x, y, lCx, lCy, u * lRadiusPct * hitPadding)) {
+            pressButton(id, KeyEvent.KEYCODE_BUTTON_L1)
+            return
+        }
+
+        // 7. C-pad
+        cDirectionAt(x, y)?.let { dir ->
+            cButtonPointers[id] = dir
+            updateCButtonState()
+        }
+    }
+
+    private fun handlePointerMove(event: MotionEvent, idx: Int) {
+        val id = event.getPointerId(idx)
+        val x = event.getX(idx)
+        val y = event.getY(idx)
+
+        if (id == leftPointerId) {
+            updateStick(x, y)
+            return
+        }
+
+        if (cButtonPointers.containsKey(id)) {
+            val dir = cDirectionAt(x, y)
+            if (dir != null) {
+                if (cButtonPointers[id] != dir) {
+                    cButtonPointers[id] = dir
+                    updateCButtonState()
+                }
+            } else {
+                cButtonPointers.remove(id)
+                updateCButtonState()
+            }
+        }
+    }
+
+    private fun handlePointerUp(id: Int) {
+        if (id == leftPointerId) {
+            releaseStick()
+            return
+        }
+
+        buttonPointers.remove(id)?.let { code ->
+            retroView.sendKeyEvent(KeyEvent.ACTION_UP, code, port)
+        }
+
+        if (cButtonPointers.remove(id) != null) {
+            updateCButtonState()
+        }
+    }
+
+    private fun releaseAll() {
+        if (leftPointerId != -1) {
+            releaseStick()
+        }
+
+        for (code in buttonPointers.values.toList()) {
+            retroView.sendKeyEvent(KeyEvent.ACTION_UP, code, port)
+        }
+        buttonPointers.clear()
+
+        if (cButtonPointers.isNotEmpty()) {
+            cButtonPointers.clear()
+            updateCButtonState()
+        }
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                handlePointerDown(event, event.actionIndex)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                for (i in 0 until event.pointerCount) {
+                    handlePointerMove(event, i)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                handlePointerUp(event.getPointerId(event.actionIndex))
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                releaseAll()
+            }
+        }
+        invalidate()
+        return true
     }
 }
