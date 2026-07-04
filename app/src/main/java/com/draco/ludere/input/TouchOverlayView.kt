@@ -169,7 +169,7 @@ class TouchOverlayView(
 
         return listOf(
             FaceButton(rightCx + sp, rightCy + sp, r, green, "B", KeyEvent.KEYCODE_BUTTON_Y),
-            FaceButton(rightCx - sp, rightCy + sp, r, purple, "A", KeyEvent.KEYCODE_BUTTON_A),
+            FaceButton(rightCx - sp, rightCy + sp, r, purple, "A", KeyEvent.KEYCODE_BUTTON_B),
         )
     }
 
