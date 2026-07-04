@@ -20,6 +20,11 @@ AAB_OUTPUT_DIR="$PROJECT_ROOT/app/build/outputs/bundle/release"
 CONFIG="$RES_DIR/values/config.xml"
 ROM="$RAW_DIR/rom"
 
+# Icon-related paths
+MIPMAP_DENSITIES=(mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi)
+ADAPTIVE_ICON_DIR="$RES_DIR/mipmap-anydpi-v26"
+ICON_BACKUP_DIR="$(mktemp -d)"
+
 # Supported ABIs
 ABIS=(armeabi-v7a arm64-v8a x86 x86_64 universal)
 
@@ -54,6 +59,104 @@ config_replace() {
 	xmlstarlet ed -L -u "/resources/string[@name='$name']" -v "$value" "$CONFIG"
 }
 
+# Snapshot the project's default launcher icon assets so we can restore
+# them between ROM batches that don't provide a custom icon
+backup_default_icons() {
+	local density
+
+	for density in "${MIPMAP_DENSITIES[@]}"
+	do
+		mkdir -p "$ICON_BACKUP_DIR/$density"
+		[[ -f "$RES_DIR/$density/ic_launcher.png" ]] && \
+			cp "$RES_DIR/$density/ic_launcher.png" "$ICON_BACKUP_DIR/$density/ic_launcher.png"
+		[[ -f "$RES_DIR/$density/ic_launcher_round.png" ]] && \
+			cp "$RES_DIR/$density/ic_launcher_round.png" "$ICON_BACKUP_DIR/$density/ic_launcher_round.png"
+	done
+
+	if [[ -d "$ADAPTIVE_ICON_DIR" ]]
+	then
+		mkdir -p "$ICON_BACKUP_DIR/mipmap-anydpi-v26"
+		cp "$ADAPTIVE_ICON_DIR"/*.xml "$ICON_BACKUP_DIR/mipmap-anydpi-v26/" 2>/dev/null
+	fi
+}
+
+# Restore the project's default launcher icon (used before every subdir,
+# so a custom icon from one batch doesn't leak into the next)
+restore_default_icons() {
+	local density
+
+	for density in "${MIPMAP_DENSITIES[@]}"
+	do
+		mkdir -p "$RES_DIR/$density"
+		[[ -f "$ICON_BACKUP_DIR/$density/ic_launcher.png" ]] && \
+			cp "$ICON_BACKUP_DIR/$density/ic_launcher.png" "$RES_DIR/$density/ic_launcher.png"
+		[[ -f "$ICON_BACKUP_DIR/$density/ic_launcher_round.png" ]] && \
+			cp "$ICON_BACKUP_DIR/$density/ic_launcher_round.png" "$RES_DIR/$density/ic_launcher_round.png"
+	done
+
+	rm -rf "$ADAPTIVE_ICON_DIR"
+	if [[ -d "$ICON_BACKUP_DIR/mipmap-anydpi-v26" ]]
+	then
+		mkdir -p "$ADAPTIVE_ICON_DIR"
+		cp "$ICON_BACKUP_DIR/mipmap-anydpi-v26"/*.xml "$ADAPTIVE_ICON_DIR/" 2>/dev/null
+	fi
+}
+
+# Look for an icon file (icon.png/.jpg/.jpeg/.webp, case-insensitive) in a
+# given payload subdirectory. Prints the path if found.
+find_icon() {
+	local dir="$1"
+	local f
+	local fname
+	local fname_lower
+
+	for f in "$dir"/*
+	do
+		[[ ! -f "$f" ]] && continue
+		fname="$(basename -- "$f")"
+		fname_lower="${fname,,}"
+
+		case "$fname_lower" in
+			icon.png|icon.jpg|icon.jpeg|icon.webp)
+				echo "$f"
+				return
+				;;
+		esac
+	done
+}
+
+# Check if a filename (case-insensitive) is a reserved payload asset
+# (config file or custom icon) rather than an actual ROM
+is_reserved_asset() {
+	local fname_lower="${1,,}"
+
+	case "$fname_lower" in
+		config.xml|icon.png|icon.jpg|icon.jpeg|icon.webp)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# Install a custom launcher icon, overriding the project default for the
+# ROMs currently being built. Removes the adaptive icon definition so the
+# raster replacement isn't masked out on API 26+.
+apply_custom_icon() {
+	local icon="$1"
+	local density
+
+	for density in "${MIPMAP_DENSITIES[@]}"
+	do
+		mkdir -p "$RES_DIR/$density"
+		cp "$icon" "$RES_DIR/$density/ic_launcher.png"
+		cp "$icon" "$RES_DIR/$density/ic_launcher_round.png"
+	done
+
+	rm -rf "$ADAPTIVE_ICON_DIR"
+}
+
 # Make sure necessary folders are here
 prepare_env() {
 	local abi
@@ -66,6 +169,9 @@ prepare_env() {
 	do
 		mkdir -p "$OUTPUT_DIR/$abi"
 	done
+
+	# Snapshot the default launcher icon before anything modifies it
+	backup_default_icons
 }
 
 # Build one package
@@ -81,23 +187,38 @@ build_inputs() {
 	local romname
 	local romid
 	local output_filename
+	local found_any=false
+	local icon_file
 
 	for subdir in "$INPUT_DIR"/*
 	do
 		# Skip invalid directories
 		[[ ! -f "$subdir/config.xml" ]] && continue
+		found_any=true
 
 		# Clean existing cores
 		log "Cleaning working directory..."
 		cp "$subdir/config.xml" "$CONFIG"
 		gradlew clean
 
+		# Reset to the default icon, then apply a custom one if this
+		# batch's payload folder included icon.png/.jpg/.jpeg/.webp
+		restore_default_icons
+		icon_file="$(find_icon "$subdir")"
+		if [[ -n "$icon_file" ]]
+		then
+			log "Applying custom icon: $(basename -- "$icon_file")"
+			apply_custom_icon "$icon_file"
+		else
+			log "No custom icon found for this batch, using default"
+		fi
+
 		for rom in "$subdir"/*
 		do
 			filename="$(basename -- "$rom")"
 
-			# Skip config file; not a ROM
-			[[ "$filename" == "config.xml" ]] && continue
+			# Skip config file and icon file; not ROMs
+			is_reserved_asset "$filename" && continue
 
 			# Escape issue characters
 			romname="${filename%.*}"
@@ -154,6 +275,48 @@ build_inputs() {
 			echo
 		done
 	done
+
+	# Nothing matched at the top level of $INPUT_DIR - try to auto-fix
+	# one extra level of nesting (e.g. payload zip contained a wrapping
+	# folder around the actual core subdirectories) before giving up.
+	if [[ "$found_any" == false ]]
+	then
+		err "No config.xml found directly under $INPUT_DIR"
+		err "Checking for an extra layer of nesting from the payload zip..."
+
+		local nested
+		local flattened=false
+		for nested in "$INPUT_DIR"/*/
+		do
+			[[ ! -d "$nested" ]] && continue
+
+			# Does this directory itself contain subdirs with config.xml?
+			local inner
+			for inner in "$nested"*/
+			do
+				if [[ -f "$inner/config.xml" ]]
+				then
+					log "Found nested config.xml under $inner - flattening..."
+					mv "$inner" "$INPUT_DIR/"
+					flattened=true
+				fi
+			done
+		done
+
+		if [[ "$flattened" == true ]]
+		then
+			log "Retrying build after flattening nested input directories..."
+			build_inputs
+		else
+			err "ERROR: No valid config.xml found anywhere in $INPUT_DIR (even one level deep)."
+			err "Expected structure:"
+			err "  autogen/input/<core-name>/config.xml"
+			err "  autogen/input/<core-name>/<rom file>"
+			err "Actual contents of $INPUT_DIR:"
+			find "$INPUT_DIR" -maxdepth 3 | sed 's/^/  /' >&2
+			exit 1
+		fi
+	fi
 }
 
 prepare_env
