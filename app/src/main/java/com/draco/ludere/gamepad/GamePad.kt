@@ -12,15 +12,16 @@ import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import com.draco.ludere.R
 import com.swordfish.libretrodroid.GLRetroView
-import io.github.controlwear.virtual.joystick.android.JoystickView
+import com.swordfish.radialgamepad.library.RadialGamePad
+import com.swordfish.radialgamepad.library.config.RadialGamePadConfig
+import com.swordfish.radialgamepad.library.event.Event
 import io.reactivex.disposables.CompositeDisposable
-import kotlin.math.cos
-import kotlin.math.sin
 
 class GamePad(
     context: Context,
+    config: RadialGamePadConfig
 ) {
-    val pad = JoystickView(context)
+    val pad = RadialGamePad(config, 8f, context)
 
     companion object {
         /**
@@ -52,7 +53,7 @@ class GamePad(
 
             /* If a GamePad is connected, we definitely don't need touch controls */
             for (id in InputDevice.getDeviceIds()) {
-                InputDevice.getDevice(id).apply {
+                InputDevice.getDevice(id)?.apply {
                     if (sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD)
                         return false
                 }
@@ -66,21 +67,20 @@ class GamePad(
      * Register input events to the RetroView
      */
     fun subscribe(compositeDisposable: CompositeDisposable, retroView: GLRetroView) {
-        pad.setOnMoveListener { angle, strength ->
-            // Apply dead zone to filter tiny inputs
-            val deadZone = 10
-            if (strength < deadZone) {
-                retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, 0f, 0f)
-                return@setOnMoveListener
+        compositeDisposable.add(
+            pad.events().subscribe { event ->
+                when (event) {
+                    is Event.Button -> {
+                        retroView.sendKeyEvent(event.action, event.id)
+                    }
+                    is Event.Direction -> {
+                        retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, event.xAxis, event.yAxis)
+                    }
+                    else -> {
+                        /* Ignore gestures (tap/double-tap) */
+                    }
+                }
             }
-
-            // Convert angle and strength to x, y coordinates
-            val rad = Math.toRadians(angle.toDouble())
-            val x = (cos(rad) * (strength / 100.0)).toFloat()
-            val y = (sin(rad) * (strength / 100.0)).toFloat()
-
-            // Send motion event to RetroView (using analog left stick)
-            retroView.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, x, y)
-        }
+        )
     }
 }
