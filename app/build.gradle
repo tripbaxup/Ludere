@@ -1,32 +1,133 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-buildscript {
-    ext.kotlin_version = "1.9.20"
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.5.2'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
-    }
-}
-
 plugins {
-    id 'de.undercouch.download' version '4.1.1'
+    id('com.android.application')
+    id('kotlin-android')
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' }
+def configValue = { id ->
+    return new XmlParser()
+        .parse(file("${rootProject.projectDir.path}/app/src/main/res/values/config.xml"))
+        .string.find { it.@name.equals id }.text()
+}
+
+android {
+    namespace 'com.draco.ludere'
+    compileSdkVersion 35
+    buildToolsVersion '35.0.0'
+
+    defaultConfig {
+        applicationId "com.draco.ludere.${configValue('config_id')}"
+        minSdkVersion 21
+        targetSdkVersion 35
+        versionCode 1
+        versionName '1.0'
+        resConfigs 'en'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("${rootProject.projectDir}/ludere.jks")
+            storePassword 'ludere'
+            keyAlias 'key0'
+            keyPassword 'ludere'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+
+    splits {
+        abi {
+            enable true
+            include 'x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a'
+            universalApk true
+        }
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
     }
 }
 
-task clean(type: Delete) {
-    delete rootProject.buildDir
-    delete "${rootProject.projectDir}/app/src/main/jniLibs"
+task prepareCore {
+    doLast {
+        for (abi in ['x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a']) {
+            def jniAbiFolder = file("${rootProject.projectDir}/app/src/main/jniLibs/$abi")
+
+            if (jniAbiFolder.exists() && jniAbiFolder.list().length > 0) {
+                println("✓ Core already exists for $abi, skipping...")
+                continue
+            }
+
+            jniAbiFolder.mkdirs()
+
+            def downloadUrl = "https://buildbot.libretro.com/nightly/android/latest/$abi/${configValue('config_core')}_libretro_android.so.zip"
+            def zipPath = "${rootProject.projectDir}/app/src/main/jniLibs/$abi/${configValue('config_core')}_libretro_android.so.zip"
+            
+            println("Downloading core for $abi...")
+            
+            // Use ProcessBuilder for better control and error handling
+            def pb = new ProcessBuilder("bash", "-c", "curl -fL# '${downloadUrl}' -o '${zipPath}'")
+            pb.directory(rootProject.projectDir)
+            pb.inheritIO()
+            def process = pb.start()
+            int exitCode = process.waitFor()
+            
+            if (exitCode != 0) {
+                println("⚠️ Warning: Core not available for $abi - skipping this architecture")
+                if (jniAbiFolder.exists()) {
+                    jniAbiFolder.deleteDir()
+                }
+                continue
+            }
+            
+            if (file(zipPath).exists()) {
+                println("✓ Downloaded core for $abi, extracting...")
+                copy {
+                    from zipTree(zipPath)
+                    into "${rootProject.projectDir}/app/src/main/jniLibs/$abi"
+                    rename "${configValue('config_core')}_libretro_android.so", "libcore.so"
+                }
+                delete {
+                    delete zipPath
+                }
+                println("✓ Extracted and prepared core for $abi")
+            } else {
+                println("⚠️ Warning: Download verification failed for $abi")
+            }
+        }
+    }
+}
+preBuild.dependsOn prepareCore
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.1-native-mt'
+
+    implementation 'androidx.core:core-ktx:1.7.0'
+    implementation 'androidx.appcompat:appcompat:1.4.0'
+
+    implementation 'androidx.activity:activity-ktx:1.4.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.4.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.4.0'
+
+    implementation 'com.github.swordfish90:radialgamepad:0.6.0'
+    implementation 'com.github.swordfish90:libretrodroid:0.6.2'
+
+    implementation 'io.reactivex.rxjava2:rxandroid:2.1.1'
 }
